@@ -1,0 +1,26 @@
+# 应用模块配置
+modules:
+  teaching:
+    name: 授课教学
+    description: 授课教学应用模块
+    enabled: true
+    mark: teaching
+    
+  exercise:
+    name: 攻防演练
+    description: 攻防演练应用模块
+    enabled: true
+    mark: exercise
+    
+  exam:
+    name: 考试测评
+    description: 考试测评应用模块
+    enabled: true
+    mark: exam
+
+# 桌面配置
+desktop:
+  base_url: http://localhost:3000  # 目标Web应用地址
+  icon_selector: .desktop-icon  # 桌面图标选择器
+  wait_timeout: 5000  # 等待桌面加载超时时间
+

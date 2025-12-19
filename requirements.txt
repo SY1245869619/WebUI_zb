@@ -1,0 +1,27 @@
+# WebUI自动化测试项目依赖
+
+# 核心框架
+playwright>=1.40.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-html>=4.1.0
+pytest-xdist>=3.5.0  # 并行执行
+
+# Web界面
+nicegui>=1.4.0
+
+# 数据库
+PyMySQL>=1.1.0
+
+# 通知服务
+requests>=2.31.0
+
+# 配置文件
+PyYAML>=6.0.1
+
+# 报告生成（可选）
+allure-pytest>=2.13.0
+
+# 其他工具
+python-dotenv>=1.0.0
+
