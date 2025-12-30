@@ -33,34 +33,31 @@ ENV/
 *.swo
 *~
 
-# 测试和日志
+# 测试和报告
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
-logs/
-*.log
-test-results/
 allure-results/
 allure-report/
+*.html
+*.xml
+
+# 日志
+logs/
+*.log
 
 # 配置文件（包含敏感信息）
-config/settings.yaml
-# 但保留示例配置
-!config/settings.yaml.example
+# config/settings.yaml  # 如果需要版本控制，可以注释掉这行
 
-# 截图和视频
-screenshots/
-videos/
-*.png
-*.jpg
-*.mp4
+# Playwright
+.playwright/
 
 # 操作系统
 .DS_Store
 Thumbs.db
 
-# Playwright
-playwright-report/
-test-results/
-
+# 临时文件
+*.tmp
+*.bak
+*.swp
