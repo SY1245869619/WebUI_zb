@@ -1,6 +1,9 @@
 """
 Playwright浏览器驱动封装
 提供统一的浏览器操作接口，支持重试机制和错误处理
+
+@File  : web_ui_driver.py
+@Author: shenyuan
 """
 import asyncio
 from typing import Optional, Callable, Any
@@ -36,13 +39,31 @@ class WebUIDriver:
     
     async def start(self):
         """启动浏览器"""
+        # 确保在正确的事件循环中启动Playwright
+        # 获取当前运行的事件循环（必须在 async 函数中调用）
+        try:
+            current_loop = asyncio.get_running_loop()
+            print(f"[DRIVER] 启动 Playwright，当前事件循环: {current_loop}")
+        except RuntimeError:
+            # 如果没有运行的事件循环，获取默认的事件循环
+            current_loop = asyncio.get_event_loop()
+            print(f"[DRIVER] 启动 Playwright，使用默认事件循环: {current_loop}")
+        
+        # 确保事件循环是活动的
+        if current_loop.is_closed():
+            raise RuntimeError("事件循环已关闭，无法启动 Playwright")
+        
+        # 启动 Playwright（必须在当前事件循环中调用）
         self.playwright = await async_playwright().start()
+        print(f"[DRIVER] Playwright 已启动")
+        
         browser_type = getattr(self.playwright, self.config['playwright']['browser'])
         
         self.browser = await browser_type.launch(
             headless=self.config['playwright']['headless'],
             slow_mo=self.config['playwright']['slow_mo']
         )
+        print(f"[DRIVER] 浏览器已启动")
         
         self.context = await self.browser.new_context(
             viewport={
@@ -50,9 +71,11 @@ class WebUIDriver:
                 'height': self.config['playwright']['viewport']['height']
             }
         )
+        print(f"[DRIVER] 浏览器上下文已创建")
         
         self.page = await self.context.new_page()
         self.page.set_default_timeout(self.config['playwright']['timeout'])
+        print(f"[DRIVER] 页面已创建，事件循环: {asyncio.get_running_loop()}")
         
     async def close(self):
         """关闭浏览器"""
@@ -121,8 +144,54 @@ class WebUIDriver:
         if not self.page:
             raise RuntimeError("浏览器未启动")
         
+        # 检查页面是否有效
+        if self.page.is_closed():
+            raise RuntimeError("页面已关闭")
+        
         timeout = timeout or self.config['playwright']['timeout']
-        await self.page.wait_for_selector(selector, timeout=timeout, state=state)
+        
+        # 使用简单的轮询方式，避免事件循环问题
+        max_attempts = timeout // 500  # 每500ms检查一次
+        
+        for attempt in range(max_attempts):
+            try:
+                locator = self.page.locator(selector).first
+                if state == "visible":
+                    # 使用count和bounding_box来检查元素是否可见，避免is_visible的事件循环问题
+                    count = await locator.count()
+                    if count > 0:
+                        box = await locator.bounding_box()
+                        if box and box.get('width', 0) > 0 and box.get('height', 0) > 0:
+                            return
+                elif state == "hidden":
+                    # 检查元素是否隐藏（不存在或不可见）
+                    count = await locator.count()
+                    if count == 0:
+                        return
+                    box = await locator.bounding_box()
+                    if not box or box.get('width', 0) == 0 or box.get('height', 0) == 0:
+                        return
+                elif state == "attached":
+                    if await locator.count() > 0:
+                        return
+                elif state == "detached":
+                    if await locator.count() == 0:
+                        return
+                else:
+                    # 默认检查可见性
+                    count = await locator.count()
+                    if count > 0:
+                        box = await locator.bounding_box()
+                        if box and box.get('width', 0) > 0 and box.get('height', 0) > 0:
+                            return
+            except:
+                pass
+            
+            # 等待一小段时间再重试
+            await asyncio.sleep(0.5)
+        
+        # 如果所有尝试都失败，抛出异常
+        raise RuntimeError(f"等待元素超时: {selector}, 状态: {state}")
     
     async def get_text(self, selector: str, timeout: Optional[int] = None) -> str:
         """获取元素文本
@@ -151,6 +220,30 @@ class WebUIDriver:
             await self.page.screenshot(path=path)
         else:
             return await self.page.screenshot()
+    
+    async def take_error_screenshot(self, error_message: str = "") -> str:
+        """在发生错误时截图
+        
+        Args:
+            error_message: 错误信息
+            
+        Returns:
+            截图文件路径
+        """
+        from utils.screenshot_utils import take_error_screenshot
+        return await take_error_screenshot(self.page, error_message)
+    
+    async def take_success_screenshot(self, step_name: str = "") -> str:
+        """在特定步骤成功时截图
+        
+        Args:
+            step_name: 步骤名称
+            
+        Returns:
+            截图文件路径
+        """
+        from utils.screenshot_utils import take_success_screenshot
+        return await take_success_screenshot(self.page, step_name)
     
     async def execute_with_retry(
         self, 
@@ -196,16 +289,36 @@ class WebUIDriver:
             return
         
         try:
-            # 尝试关闭所有弹窗
-            close_buttons = await self.page.query_selector_all('.close, .modal-close, [aria-label="关闭"]')
-            for btn in close_buttons:
-                try:
-                    await btn.click(timeout=1000)
-                except:
-                    pass
+            # 确保在正确的事件循环中执行
+            # 检查页面是否仍然有效
+            if self.page.is_closed():
+                return
             
-            # 刷新页面
-            await self.page.reload(wait_until="networkidle")
+            # 尝试关闭所有弹窗（使用locator而不是query_selector_all，避免事件循环问题）
+            try:
+                close_selectors = ['.close', '.modal-close', '[aria-label="关闭"]']
+                for selector in close_selectors:
+                    try:
+                        close_btn = self.page.locator(selector).first
+                        if await close_btn.is_visible(timeout=1000):
+                            await close_btn.click(timeout=1000)
+                    except:
+                        pass
+            except Exception as e:
+                # 如果关闭弹窗失败，继续执行
+                pass
+            
+            # 刷新页面（如果页面仍然有效）
+            if not self.page.is_closed():
+                try:
+                    await self.page.reload(wait_until="networkidle", timeout=5000)
+                except:
+                    # 如果刷新失败，尝试简单的reload
+                    try:
+                        await self.page.reload(timeout=5000)
+                    except:
+                        pass
         except Exception as e:
+            # 静默处理错误，避免影响测试
             print(f"重置状态时出错: {e}")
 
