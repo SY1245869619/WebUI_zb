@@ -1,5 +1,8 @@
 """
 通知配置组件（钉钉和邮箱）
+
+@File  : notification_config.py
+@Author: shenyuan
 """
 from nicegui import ui
 import yaml
@@ -36,8 +39,9 @@ class NotificationConfig:
         Returns:
             UI卡片组件
         """
-        with ui.card().classes('w-full'):
-            ui.label('通知配置').classes('text-lg font-bold mb-4')
+        with ui.card().classes('w-full config-section'):
+            with ui.column().classes('card-content'):
+                ui.label('📢 通知配置').classes('section-title').style('color: #e0e6ed;')
             
             # 钉钉配置
             with ui.expansion('钉钉机器人配置', icon='chat').classes('w-full mb-4'):
