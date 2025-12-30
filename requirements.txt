@@ -9,9 +9,13 @@ pytest-xdist>=3.5.0  # 并行执行
 
 # Web界面
 nicegui>=1.4.0
+# 注意：NiceGUI需要pydantic>=2.0.0，如果遇到版本冲突请升级pydantic
+pydantic>=2.0.0  # 必须使用pydantic v2
+fastapi>=0.109.1  # 兼容pydantic v2
 
 # 数据库
 PyMySQL>=1.1.0
+sshtunnel>=0.4.0  # SSH隧道支持
 
 # 通知服务
 requests>=2.31.0
@@ -21,7 +25,17 @@ PyYAML>=6.0.1
 
 # 报告生成（可选）
 allure-pytest>=2.13.0
+beautifulsoup4>=4.12.0  # 用于解析HTML报告（可选，用于更好的测试用例解析）
 
 # 其他工具
 python-dotenv>=1.0.0
+
+# Excel支持（用于用例导入）
+openpyxl>=3.1.0
+pandas>=2.0.0
+
+# 图像识别支持（用于图标点击）
+opencv-python>=4.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
 
