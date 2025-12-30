@@ -5,22 +5,25 @@ modules:
     description: 授课教学应用模块
     enabled: true
     mark: teaching
+    icon: ''  # 图标URL，后续可以添加图标路径
     
   exercise:
     name: 攻防演练
     description: 攻防演练应用模块
     enabled: true
     mark: exercise
+    icon: ''  # 图标URL，后续可以添加图标路径
     
   exam:
     name: 考试测评
     description: 考试测评应用模块
     enabled: true
     mark: exam
+    icon: ''  # 图标URL，后续可以添加图标路径
 
 # 桌面配置
 desktop:
-  base_url: http://localhost:3000  # 目标Web应用地址
+  base_url: http://10.70.70.96/Shenyuan_9  # 登录后的桌面地址（登录后会自动跳转到这里）
   icon_selector: .desktop-icon  # 桌面图标选择器
   wait_timeout: 5000  # 等待桌面加载超时时间
 
