@@ -1,0 +1,52 @@
+database:
+  charset: utf8mb4
+  database: test_db
+  host: 127.0.0.1
+  password: DTcaCsGV8E6dw4uLM7njHmfXyR5NqxWb
+  port: 3306
+  ssh_tunnel:
+    enabled: false
+    ssh_host: 10.70.70.96
+    ssh_password: Mko@qaz68
+    ssh_port: 22
+    ssh_user: user
+  user: root
+logging:
+  file: logs/automation.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+login:
+  auto_login: true
+  login_button_selector: button:has-text("登录"), button[type="submit"], .login-btn,
+    [class*="login-button"]
+  password: Shenyuan_9
+  password_selector: input[name="password"], input[type="password"]
+  url: http://10.70.70.96/Shenyuan_9#/login
+  username: Shenyuan_9
+  username_selector: input[name="username"], input[type="text"], input[placeholder*="用户名"],
+    input[placeholder*="账号"]
+notification:
+  dingtalk:
+    enabled: true
+    secret: SEC8148a6bbc8f62282776f1d104222bfe0d13f4a43e0773c302c7118a0419ebe28
+    webhook: https://oapi.dingtalk.com/robot/send?access_token=fa5b39685bf56cfa2c84a26ad519093011d0db9cd3ec98f10b54e54a889dafbc
+  email:
+    enabled: true
+    receiver_emails:
+    - sy17713146220@dingtalk.com
+    sender_email: 1245869619@qq.com
+    sender_password: lbffxzzwztuqhahe
+    smtp_port: 587
+    smtp_server: smtp.qq.com
+playwright:
+  browser: chromium
+  headless: false
+  slow_mo: 100
+  timeout: 30000
+  viewport:
+    height: 1080
+    width: 1920
+web_ui:
+  host: 0.0.0.0
+  port: 8080
+  title: WebUI自动化测试控制台
