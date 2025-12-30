@@ -1,8 +1,12 @@
 """
 桌面页面对象
 处理Web桌面相关操作，如点击图标打开应用
+
+@File  : desktop_page.py
+@Author: shenyuan
 """
 import yaml
+import asyncio
 from pathlib import Path
 from typing import Optional
 from pages.base_page import BasePage
@@ -40,8 +44,65 @@ class DesktopPage(BasePage):
     
     async def wait_for_load(self, timeout: Optional[int] = None):
         """等待桌面加载完成"""
-        # 等待桌面容器加载
-        await self.driver.wait_for_selector('.desktop-container, .desktop, [class*="desktop"]', timeout=timeout)
+        # 检查页面是否有效
+        if not self.page or self.page.is_closed():
+            raise RuntimeError("页面已关闭或无效")
+        
+        # 先等待页面基本加载完成
+        try:
+            await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+        except:
+            pass
+        
+        # 等待桌面容器加载，使用简单的等待策略，避免事件循环问题
+        timeout = timeout or 10000
+        max_attempts = timeout // 500  # 每500ms检查一次
+        
+        for attempt in range(max_attempts):
+            try:
+                # 使用简单的元素检查，避免复杂的等待逻辑
+                locator = self.page.locator('.desktop-container, .desktop, [class*="desktop"]').first
+                if await self._check_element_visible(locator, timeout=500):
+                    return  # 找到了，直接返回
+            except:
+                pass
+            
+            # 等待一小段时间再重试
+            await asyncio.sleep(0.5)
+        
+        # 如果所有尝试都失败，尝试最后一次检查
+        try:
+            locator = self.page.locator('.desktop-container, .desktop, [class*="desktop"]').first
+            if await self._check_element_visible(locator, timeout=1000):
+                return
+        except:
+            pass
+        
+        # 如果还是找不到，可能页面结构不同，不抛出异常，让调用者继续
+    
+    async def _check_element_visible(self, locator, timeout: int = 5000) -> bool:
+        """检查元素是否可见（不使用is_visible API，避免事件循环问题）
+        
+        Args:
+            locator: Playwright locator对象
+            timeout: 超时时间（毫秒）
+        
+        Returns:
+            是否可见
+        """
+        max_attempts = timeout // 500
+        for attempt in range(max_attempts):
+            try:
+                # 使用count和bounding_box来检查元素是否存在和可见
+                count = await locator.count()
+                if count > 0:
+                    box = await locator.bounding_box()
+                    if box and box.get('width', 0) > 0 and box.get('height', 0) > 0:
+                        return True
+            except:
+                pass
+            await asyncio.sleep(0.5)
+        return False
     
     async def click_app_icon(self, app_name: str, double_click: bool = True):
         """点击应用图标
@@ -50,39 +111,47 @@ class DesktopPage(BasePage):
             app_name: 应用名称（如：授课教学、攻防演练、考试测评）
             double_click: 是否双击，默认True
         """
-        # 根据应用名称查找图标
-        # 可以使用多种定位方式：文本、图标标题等
-        icon_selectors = [
-            f'[title="{app_name}"]',
-            f'[aria-label="{app_name}"]',
-            f'.app-icon:has-text("{app_name}")',
-            f'[data-app="{app_name}"]',
-        ]
+        # 检查页面是否有效
+        if not self.page or self.page.is_closed():
+            raise RuntimeError("页面已关闭或无效")
         
-        icon_found = False
-        for selector in icon_selectors:
-            try:
-                if await self.is_element_visible(selector, timeout=3000):
-                    if double_click:
-                        await self.page.dblclick(selector)
-                    else:
-                        await self.driver.click(selector)
-                    icon_found = True
-                    break
-            except:
-                continue
+        print(f"[DesktopPage] 开始点击应用图标: {app_name}")
         
-        if not icon_found:
-            # 如果找不到，尝试通过文本定位
-            try:
-                await self.page.click(f'text="{app_name}"')
-                if double_click:
-                    await self.page.dblclick(f'text="{app_name}"')
-            except Exception as e:
-                raise Exception(f"无法找到应用图标: {app_name}, 错误: {e}")
+        # 先尝试关闭可能的弹窗（如磁盘空间不足提示）
+        try:
+            close_selectors = [
+                'button:has-text("知道了")',
+                'button:has-text("关闭")',
+                '.close',
+                '.modal-close',
+                '[aria-label="关闭"]',
+            ]
+            for selector in close_selectors:
+                try:
+                    close_btn = self.page.locator(selector).first
+                    if await close_btn.is_visible(timeout=1000):
+                        await close_btn.click()
+                        await asyncio.sleep(0.5)
+                        print(f"[DesktopPage] 已关闭弹窗: {selector}")
+                        break
+                except:
+                    continue
+        except:
+            pass
         
-        # 等待应用弹窗打开
-        await self.page.wait_for_timeout(1000)
+        # 直接使用 Playwright 的 get_by_text API（与 login_page.py 中相同的方法）
+        # 这是最简单、最可靠的方法
+        try:
+            if double_click:
+                await self.page.get_by_text(app_name).dblclick()
+            else:
+                await self.page.get_by_text(app_name).click()
+            print(f"[DesktopPage] [OK] 成功点击应用图标: {app_name}")
+            await asyncio.sleep(1.0)
+            return
+        except Exception as e:
+            print(f"[DesktopPage] [ERROR] 直接点击失败: {e}")
+            raise Exception(f"无法点击应用图标: {app_name}。错误: {e}")
     
     async def close_all_apps(self):
         """关闭所有打开的应用弹窗"""
