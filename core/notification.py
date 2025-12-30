@@ -1,6 +1,9 @@
 """
 通知服务封装
 支持钉钉机器人和邮件发送
+
+@File  : notification.py
+@Author: shenyuan
 """
 import requests
 import smtplib
@@ -145,10 +148,23 @@ class NotificationService:
             return False
         
         try:
+            # 检查必要字段
+            sender_email = email_config.get('sender_email', '').strip()
+            receiver_emails = email_config.get('receiver_emails', [])
+            
+            if not sender_email:
+                print("发件人邮箱未配置")
+                return False
+            
+            if not receiver_emails:
+                print("收件人邮箱未配置")
+                return False
+            
             # 创建邮件对象
             msg = MIMEMultipart()
-            msg['From'] = Header(email_config['sender_email'], 'utf-8')
-            msg['To'] = Header(','.join(email_config['receiver_emails']), 'utf-8')
+            # QQ邮箱要求From头必须是纯邮箱地址字符串，不能使用Header包装
+            msg['From'] = sender_email
+            msg['To'] = ','.join(receiver_emails)
             msg['Subject'] = Header(subject, 'utf-8')
             
             # 添加正文
@@ -176,10 +192,10 @@ class NotificationService:
             # 发送邮件
             smtp = smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port'])
             smtp.starttls()
-            smtp.login(email_config['sender_email'], email_config['sender_password'])
+            smtp.login(sender_email, email_config['sender_password'])
             smtp.sendmail(
-                email_config['sender_email'],
-                email_config['receiver_emails'],
+                sender_email,
+                receiver_emails,
                 msg.as_string()
             )
             smtp.quit()
@@ -198,7 +214,8 @@ class NotificationService:
         failed: int,
         skipped: int,
         duration: float,
-        error_details: Optional[List[Dict[str, Any]]] = None
+        error_details: Optional[List[Dict[str, Any]]] = None,
+        html_report_path: Optional[Path] = None
     ):
         """发送测试报告
         
@@ -210,8 +227,10 @@ class NotificationService:
             skipped: 跳过数
             duration: 执行时长（秒）
             error_details: 错误详情列表
+            html_report_path: HTML报告文件路径（可选）
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        pass_rate = (passed/total*100) if total > 0 else 0
         
         # 构建钉钉消息
         dingtalk_msg = f"""# 自动化测试报告
@@ -228,16 +247,112 @@ class NotificationService:
 
 **执行时长**: {duration:.2f}秒
 
-**通过率**: {(passed/total*100) if total > 0 else 0:.2f}%
+**通过率**: {pass_rate:.2f}%
 """
         
         if error_details:
             dingtalk_msg += "\n**失败用例**:\n"
             for error in error_details[:5]:  # 只显示前5个错误
-                dingtalk_msg += f"- {error.get('name', 'Unknown')}: {error.get('error', '')}\n"
+                error_msg = error.get('error', '')[:100]  # 限制长度
+                dingtalk_msg += f"- {error.get('name', 'Unknown')}: {error_msg}\n"
         
-        # 构建邮件内容
-        email_content = f"""
+        # 如果存在HTML报告，在钉钉消息中添加提示
+        if html_report_path and html_report_path.exists():
+            dingtalk_msg += f"\n**详细报告**: 请查看邮件附件或访问: `{html_report_path.absolute()}`"
+        
+        # 构建邮件内容（HTML格式）
+        email_html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+        .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        h1 {{ color: #333; border-bottom: 3px solid #0096ff; padding-bottom: 10px; }}
+        .info {{ margin: 20px 0; }}
+        .info-item {{ margin: 10px 0; padding: 8px; background: #f9f9f9; border-left: 4px solid #0096ff; }}
+        .stats {{ display: flex; gap: 20px; margin: 20px 0; flex-wrap: wrap; }}
+        .stat-card {{ flex: 1; min-width: 150px; padding: 15px; border-radius: 8px; text-align: center; }}
+        .stat-total {{ background: #e3f2fd; color: #1976d2; }}
+        .stat-passed {{ background: #e8f5e9; color: #388e3c; }}
+        .stat-failed {{ background: #ffebee; color: #d32f2f; }}
+        .stat-skipped {{ background: #fff3e0; color: #f57c00; }}
+        .stat-number {{ font-size: 32px; font-weight: bold; margin: 10px 0; }}
+        .stat-label {{ font-size: 14px; }}
+        .errors {{ margin-top: 20px; }}
+        .error-item {{ margin: 15px 0; padding: 15px; background: #fff3f3; border-left: 4px solid #d32f2f; border-radius: 4px; }}
+        .error-name {{ font-weight: bold; color: #d32f2f; margin-bottom: 8px; }}
+        .error-msg {{ color: #666; font-size: 12px; white-space: pre-wrap; }}
+        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #999; font-size: 12px; text-align: center; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 自动化测试报告</h1>
+        
+        <div class="info">
+            <div class="info-item"><strong>执行时间:</strong> {timestamp}</div>
+            <div class="info-item"><strong>执行模块:</strong> {', '.join(modules)}</div>
+            <div class="info-item"><strong>执行时长:</strong> {duration:.2f}秒</div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card stat-total">
+                <div class="stat-number">{total}</div>
+                <div class="stat-label">总用例数</div>
+            </div>
+            <div class="stat-card stat-passed">
+                <div class="stat-number">{passed}</div>
+                <div class="stat-label">通过 ✅</div>
+            </div>
+            <div class="stat-card stat-failed">
+                <div class="stat-number">{failed}</div>
+                <div class="stat-label">失败 ❌</div>
+            </div>
+            <div class="stat-card stat-skipped">
+                <div class="stat-number">{skipped}</div>
+                <div class="stat-label">跳过 ⏭️</div>
+            </div>
+        </div>
+        
+        <div class="info-item" style="text-align: center; font-size: 18px; font-weight: bold; color: {'#388e3c' if pass_rate >= 80 else '#d32f2f' if pass_rate < 50 else '#f57c00'};">
+            通过率: {pass_rate:.2f}%
+        </div>
+"""
+        
+        if error_details:
+            email_html_content += """
+        <div class="errors">
+            <h2>失败用例详情</h2>
+"""
+            for error in error_details:
+                error_name = error.get('name', 'Unknown')
+                error_msg = error.get('error', '')
+                # HTML转义
+                error_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                email_html_content += f"""
+            <div class="error-item">
+                <div class="error-name">{error_name}</div>
+                <div class="error-msg">{error_msg}</div>
+            </div>
+"""
+            email_html_content += """
+        </div>
+"""
+        
+        email_html_content += f"""
+        <div class="footer">
+            <p>此报告由 WebUI自动化测试平台自动生成</p>
+            <p>报告时间: {timestamp}</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+        
+        # 构建纯文本邮件内容（作为后备）
+        email_text_content = f"""
 自动化测试报告
 
 执行时间: {timestamp}
@@ -252,20 +367,31 @@ class NotificationService:
 
 执行时长: {duration:.2f}秒
 
-通过率: {(passed/total*100) if total > 0 else 0:.2f}%
+通过率: {pass_rate:.2f}%
 """
         
         if error_details:
-            email_content += "\n失败用例详情:\n"
+            email_text_content += "\n失败用例详情:\n"
             for error in error_details:
-                email_content += f"\n用例: {error.get('name', 'Unknown')}\n"
-                email_content += f"错误: {error.get('error', '')}\n"
-                email_content += "-" * 50 + "\n"
+                email_text_content += f"\n用例: {error.get('name', 'Unknown')}\n"
+                email_text_content += f"错误: {error.get('error', '')}\n"
+                email_text_content += "-" * 50 + "\n"
+        
+        # 准备附件列表
+        attachments = []
+        if html_report_path and html_report_path.exists():
+            attachments.append(str(html_report_path))
         
         # 发送通知
         if self.config['notification']['dingtalk'].get('enabled', False):
             self.send_dingtalk_message(dingtalk_msg, "自动化测试报告")
         
         if self.config['notification']['email'].get('enabled', False):
-            self.send_email("自动化测试报告", email_content)
+            # 发送HTML格式邮件，包含报告附件
+            self.send_email(
+                subject=f"自动化测试报告 - {timestamp}",
+                content=email_html_content,
+                html=True,
+                attachments=attachments
+            )
 
