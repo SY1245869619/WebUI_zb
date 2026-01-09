@@ -48,7 +48,8 @@ class TestTeachingNavigation:
             
             # 验证应用启动成功：检查主菜单是否可见
             await expect(page.get_by_role("menuitem", name="统计分析")).to_be_visible()
-            
+            # 使用自定义文件名截图
+            screenshot_path = await driver.take_screenshot("关键步骤_操作完成")            
             # ========== 步骤2: 测试教学管理模块 ==========
             # 展开教学管理菜单
             await page.get_by_text("教学管理").click()
@@ -90,7 +91,7 @@ class TestTeachingNavigation:
             
             # ========== 步骤4: 测试内容市场模块 ==========
             await page.get_by_text("内容市场").click()
-            await page.get_by_role("menuitem", name="资源安装--").click()
+            await page.get_by_role("menuitem", name="资源安装").click()
             # 验证资源列表页面加载成功
             await expect(page.get_by_text("名称")).to_be_visible()
             
