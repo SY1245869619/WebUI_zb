@@ -1,0 +1,12 @@
+[
+  {
+    "test_case": "login_test",
+    "url": "http://example.com/login",
+    "action": "click"
+  },
+  {
+    "test_case": "search_test",
+    "url": "http://example.com/search",
+    "action": "type"
+  }
+]
