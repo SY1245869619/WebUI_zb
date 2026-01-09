@@ -14,6 +14,10 @@
 ✅ **用例录制** - 集成Playwright Codegen，支持可视化录制用例  
 ✅ **Excel用例导入** - 支持从Excel表格导入测试用例，非技术人员也能编写用例  
 ✅ **Page Object模式** - 清晰的页面对象封装，易于维护  
+✅ **失败重试机制** - 支持配置重试次数和重试延迟，提高测试稳定性  
+✅ **超时配置** - 支持自定义测试用例超时时间，灵活控制执行时长  
+✅ **自定义中文报告** - 生成美观的中文测试报告，包含图表分析和趋势展示  
+✅ **截图管理** - 自动截图（错误、成功、关键步骤），支持手动截图，截图类型清晰标识  
 
 ## 🏗️ 项目结构
 
@@ -125,14 +129,15 @@ playwright:
     height: 1080
 ```
 
-编辑 `config/module_config.yaml` 配置目标Web应用：
+编辑 `config/module_config.yaml` 配置桌面相关设置：
 
 ```yaml
 desktop:
-  base_url: http://10.70.70.96/Shenyuan_9  # 修改为你的Web应用地址（登录后的桌面地址）
-  icon_selector: .desktop-icon
-  wait_timeout: 5000
+  icon_selector: .desktop-icon  # 桌面图标选择器
+  wait_timeout: 7000  # 等待桌面加载超时时间
 ```
+
+**注意**：桌面URL会从登录配置自动获取，无需在此配置。登录后会自动跳转到桌面。
 
 **重要**：登录配置已在 `config/settings.yaml` 中预设：
 - 登录URL: `http://10.70.70.96/Shenyuan_9#/login`
@@ -186,8 +191,8 @@ python run.py
 
 #### 📚 详细录制指南
 
-- **实习生版**：查看 `docs/录制指南-实习生版.md` - 超简单，3步搞定！
-- **详细版**：查看 `docs/录制工具使用说明.md` - 完整的使用说明和技巧
+- **测试用例编写指南**：查看 `docs/测试用例编写指南.md` - 超简单，包含录制和转换说明
+- **录制工具使用说明**：查看 `docs/录制工具使用说明.md` - 完整的使用说明和技巧
 
 #### 录制示例
 
@@ -396,16 +401,22 @@ class TeachingApp(BasePage):
 
 项目支持多种测试报告格式：
 
-- **pytest-html**: 生成HTML报告
-  ```bash
-  pytest --html=report.html
-  ```
+- **pytest-html**: 自动生成HTML报告，Test列显示中文模块和类信息
+  - 报告位置：`reports/pytest自动化测试报告_YYYYMMDD_HHMMSS.html`
+  - 支持失败重试显示，每个状态（rerun、passed、failed）单独显示
+
+- **自定义中文报告**: 生成美观的中文测试报告（推荐）
+  - 报告位置：`reports/WebUI自动化测试报告_YYYYMMDD_HHMMSS.html`
+  - 包含：测试结果统计、执行时长对比、模块通过率热力图、通过率趋势分析
+  - 支持图表展示，便于分析测试趋势
 
 - **Allure**: 生成Allure报告（需安装allure-pytest）
   ```bash
   pytest --alluredir=allure-results
   allure serve allure-results
   ```
+
+详细说明请查看 `docs/测试报告说明.md`
 
 ## 🔍 常见问题
 
@@ -428,10 +439,32 @@ A: 使用 `driver.skip_step()` 跳过当前步骤，或使用 `driver.reset_to_i
 
 ### Q: 如何添加新的应用模块？
 
-1. 在 `config/module_config.yaml` 中添加模块配置
-2. 在 `pages/` 目录下创建应用页面类
-3. 在 `test_cases/` 目录下创建测试用例
-4. 在 `pytest.ini` 中添加模块标记
+详细步骤请参考 `docs/新增模块指南.md`，基本步骤如下：
+
+1. **在 `config/module_config.yaml` 中添加模块配置**
+   ```yaml
+   modules:
+     your_module:
+       name: 你的模块名称
+       description: 模块描述
+       enabled: true
+       mark: your_module
+   ```
+
+2. **在 `pytest.ini` 中添加模块标记**
+   ```ini
+   markers =
+       your_module: 你的模块名称测试
+   ```
+
+3. **在 `test_cases/` 目录下创建测试用例目录**
+   ```bash
+   mkdir test_cases/your_module
+   ```
+
+4. **创建测试用例文件**（参考 `docs/测试用例编写指南.md`）
+
+5. **（可选）在 `pages/` 目录下创建应用页面类**（如果使用Page Object模式）
 
 ## 📊 Excel用例导入（新功能）
 
@@ -454,7 +487,7 @@ A: 使用 `driver.skip_step()` 跳过当前步骤，或使用 `driver.reset_to_i
 
 ### 详细说明
 
-查看 `docs/Excel用例导入指南.md` 了解完整的使用方法和示例。
+查看 `docs/` 目录下的相关文档了解完整的使用方法和示例。
 
 ### 优势
 
@@ -465,11 +498,26 @@ A: 使用 `driver.skip_step()` 跳过当前步骤，或使用 `driver.reset_to_i
 
 ## 📚 更多资源
 
+### 外部文档
+
 - [Playwright文档](https://playwright.dev/python/)
 - [pytest文档](https://docs.pytest.org/)
 - [NiceGUI文档](https://nicegui.io/)
 - [PyMySQL文档](https://pymysql.readthedocs.io/)
-- 项目文档目录: `docs/`
+
+### 项目文档
+
+所有详细文档都在 `docs/` 目录下：
+
+- **测试用例编写指南** - `docs/测试用例编写指南.md` - 如何编写测试用例（推荐给实习生）
+- **新增模块指南** - `docs/新增模块指南.md` - 如何添加新的应用模块
+- **Web界面使用说明** - `docs/Web界面使用说明.md` - Web控制界面详细使用说明
+- **测试报告说明** - `docs/测试报告说明.md` - 测试报告功能说明
+- **高级功能说明** - `docs/高级功能说明.md` - 高级功能使用说明
+- **录制工具使用说明** - `docs/录制工具使用说明.md` - 用例录制工具使用说明
+- **代码转换工具使用说明** - `docs/代码转换工具使用说明.md` - 代码转换工具使用说明
+- **页面对象说明** - `docs/页面对象说明.md` - Page Object模式说明
+- **其他文档** - 查看 `docs/` 目录获取更多文档
 
 ## 📄 许可证
 
