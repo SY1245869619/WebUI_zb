@@ -4,7 +4,7 @@
 playwright>=1.40.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
-pytest-html>=4.1.0
+pytest-html==3.2.0
 pytest-xdist>=3.5.0  # 并行执行
 
 # Web界面
@@ -29,6 +29,11 @@ beautifulsoup4>=4.12.0  # 用于解析HTML报告（可选，用于更好的测�
 
 # 其他工具
 python-dotenv>=1.0.0
+
+# 测试增强功能
+pytest-rerunfailures>=12.0  # 失败重试机制
+APScheduler>=3.10.0  # 定时任务调度
+pytest-xdist>=3.5.0  # 分布式/并行执行（已在上面）
 
 # Excel支持（用于用例导入）
 openpyxl>=3.1.0
