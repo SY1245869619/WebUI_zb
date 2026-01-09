@@ -76,8 +76,45 @@ class ModuleSelector:
                                         with ui.column().classes('items-center').style('position: relative;'):
                                             # 图标（优先使用配置文件中的路径，如果不存在则使用占位符）- 支持替换图标
                                             icon_path = module_info.get('icon', '')
-                                            if icon_path and Path(icon_path).exists():
-                                                ui.image(icon_path).classes('rounded-lg').style('width: 56px; height: 56px; object-fit: contain;')
+                                            # 处理图标路径：支持文件系统路径和Web路径
+                                            icon_url = None
+                                            if icon_path:
+                                                # 如果路径以 /assets/ 开头，直接使用（Web路径）
+                                                if icon_path.startswith('/assets/'):
+                                                    icon_url = icon_path
+                                                # 如果路径以 assets/ 开头，添加 / 前缀
+                                                elif icon_path.startswith('assets/'):
+                                                    icon_url = '/' + icon_path
+                                                # 如果是文件系统路径，检查文件是否存在
+                                                elif Path(icon_path).exists():
+                                                    # 转换为Web路径：assets/images/xxx.png -> /assets/images/xxx.png
+                                                    if 'assets' in icon_path:
+                                                        # 提取assets之后的部分
+                                                        assets_index = icon_path.find('assets')
+                                                        icon_url = '/' + icon_path[assets_index:]
+                                                    else:
+                                                        # 如果不在assets目录下，尝试直接使用
+                                                        icon_url = icon_path
+                                                else:
+                                                    # 尝试作为Web路径使用
+                                                    if not icon_path.startswith('http'):
+                                                        icon_url = icon_path if icon_path.startswith('/') else '/' + icon_path
+                                            
+                                            if icon_url:
+                                                # 获取模块名称首字符，用于图片加载失败时的占位符
+                                                first_char = module_info['name'][0] if module_info['name'] else '?'
+                                                # 使用HTML直接创建图片，添加onerror处理
+                                                ui.html(
+                                                    f'<div style="position: relative; width: 56px; height: 56px;">'
+                                                    f'<img src="{icon_url}" '
+                                                    f'class="rounded-lg" '
+                                                    f'style="width: 56px; height: 56px; object-fit: contain; display: block;" '
+                                                    f'onerror="this.style.display=\'none\'; this.nextElementSibling.style.display=\'flex\';" '
+                                                    f'alt="图标">'
+                                                    f'<div id="icon-placeholder-{module_key}" style="width: 56px; height: 56px; background: linear-gradient(135deg, #0096ff 0%, #00b4ff 100%); border-radius: 12px; display: none; align-items: center; justify-content: center; color: white; font-size: 24px; font-weight: bold; box-shadow: 0 4px 12px rgba(0, 150, 255, 0.4); position: absolute; top: 0; left: 0;">{first_char}</div>'
+                                                    f'</div>',
+                                                    sanitize=False
+                                                )
                                             else:
                                                 # 默认图标占位：使用模块名称首字符
                                                 first_char = module_info['name'][0] if module_info['name'] else '?'
