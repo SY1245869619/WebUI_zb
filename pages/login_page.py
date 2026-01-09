@@ -6,10 +6,21 @@
 @Author: shenyuan
 """
 import yaml
+import logging
+import sys
+import io
 from pathlib import Path
 from typing import Optional
 from pages.base_page import BasePage
 from core.web_ui_driver import WebUIDriver
+
+# 创建logger用于记录登录日志
+logger = logging.getLogger(__name__)
+# 确保logger使用UTF-8编码
+logger.setLevel(logging.INFO)
+# 不添加自己的handler，只使用根logger的handler，避免重复输出
+# 设置propagate=True让日志传播到根logger，由根logger统一处理
+logger.propagate = True
 
 
 class LoginPage(BasePage):
@@ -199,15 +210,15 @@ class LoginPage(BasePage):
             
             # 检查是否成功跳转到桌面
             current_url = self.page.url
-            print(f"[LoginPage] 登录后 URL: {current_url}")
+            logger.info(f"[LoginPage] 登录后 URL: {current_url}")
             
             # 如果还在登录页面，说明登录可能失败
             if 'login' in current_url.lower():
-                print("[LoginPage] [WARNING] 登录后仍在登录页面，可能登录失败")
+                logger.warning("[LoginPage] [WARNING] 登录后仍在登录页面，可能登录失败")
             else:
-                print("[LoginPage] 登录成功，已跳转到桌面")
+                logger.info("[LoginPage] 登录成功，已跳转到桌面")
         except Exception as e:
-            print(f"[LoginPage] 验证登录状态时出错: {e}")
+            logger.error(f"[LoginPage] 验证登录状态时出错: {e}")
     
     async def is_logged_in(self) -> bool:
         """检查是否已登录
