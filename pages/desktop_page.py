@@ -7,6 +7,7 @@
 """
 import yaml
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 from pages.base_page import BasePage
@@ -16,17 +17,20 @@ from core.web_ui_driver import WebUIDriver
 class DesktopPage(BasePage):
     """桌面页面类"""
     
-    def __init__(self, driver: WebUIDriver, config_path: str = "config/module_config.yaml"):
+    def __init__(self, driver: WebUIDriver, module_config_path: str = "config/module_config.yaml", settings_config_path: str = "config/settings.yaml"):
         """初始化桌面页面
         
         Args:
             driver: WebUI驱动实例
-            config_path: 模块配置文件路径
+            module_config_path: 模块配置文件路径
+            settings_config_path: 设置配置文件路径（用于获取登录配置）
         """
         super().__init__(driver)
-        self.config = self._load_config(config_path)
-        self.base_url = self.config['desktop']['base_url']
-        self.icon_selector = self.config['desktop']['icon_selector']
+        self.module_config = self._load_config(module_config_path)
+        self.settings_config = self._load_config(settings_config_path)
+        # 从登录配置动态获取桌面URL
+        self.base_url = self._get_desktop_url()
+        self.icon_selector = self.module_config.get('desktop', {}).get('icon_selector', '.desktop-icon')
     
     def _load_config(self, config_path: str) -> dict:
         """加载配置文件"""
@@ -37,8 +41,44 @@ class DesktopPage(BasePage):
         with open(config_file, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     
+    def _get_desktop_url(self) -> str:
+        """从登录配置动态获取桌面URL
+        
+        桌面URL从登录URL推导：
+        - 如果登录URL包含 #/login，替换为 #/index
+        - 如果登录URL不包含 #，添加 #/index
+        - 如果登录URL包含其他路径，保持基础URL并添加 #/index
+        
+        Returns:
+            桌面URL
+        """
+        login_url = self.settings_config.get('login', {}).get('url', '')
+        if not login_url:
+            # 如果登录URL不存在，尝试从module_config获取（向后兼容）
+            return self.module_config.get('desktop', {}).get('base_url', '')
+        
+        # 处理登录URL，推导桌面URL
+        # 移除 #/login 部分
+        if '#/login' in login_url:
+            desktop_url = login_url.replace('#/login', '#/index')
+        elif '#/index' in login_url:
+            # 如果已经是桌面URL，直接返回
+            desktop_url = login_url
+        elif '#' in login_url:
+            # 如果包含其他hash，替换为 #/index
+            desktop_url = re.sub(r'#.*', '#/index', login_url)
+        else:
+            # 如果没有hash，添加 #/index
+            desktop_url = login_url + '#/index'
+        
+        return desktop_url
+    
     async def open_desktop(self):
-        """打开桌面页面"""
+        """打开桌面页面
+        
+        注意：如果已经登录，通常不需要调用此方法，因为登录后会自动跳转到桌面。
+        此方法主要用于手动导航到桌面。
+        """
         await self.driver.goto(self.base_url)
         await self.wait_for_load()
     
