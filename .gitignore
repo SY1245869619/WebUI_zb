@@ -61,3 +61,4 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+temp/  # 临时文件和运行时数据（包含登录状态等敏感信息）
