@@ -7,12 +7,15 @@ NiceGUI Web控制界面主入口
 import asyncio
 import subprocess
 import threading
+import os
+import re
 from datetime import datetime
 from pathlib import Path
 from nicegui import ui, app
 from web_ui.components.module_selector import ModuleSelector
 from web_ui.components.notification_config import NotificationConfig
 from web_ui.components.login_config import LoginConfig
+from web_ui.components.advanced_features import AdvancedFeaturesPanel
 from core.notification import NotificationService
 import yaml
 
@@ -25,6 +28,7 @@ class WebUIController:
         self.module_selector = ModuleSelector()
         self.notification_config = NotificationConfig()
         self.login_config = LoginConfig()
+        self.advanced_features = AdvancedFeaturesPanel()
         self.is_running = False
         self.current_process = None
         self.log_content = []
@@ -124,10 +128,291 @@ class WebUIController:
                 scrollbar-width: thin;
                 scrollbar-color: rgba(0, 150, 255, 0.6) rgba(10, 22, 40, 0.5);
             }
+            /* 确保页面背景始终是深色渐变，不受弹窗影响 */
+            html, body {
+                background: linear-gradient(135deg, #0a1628 0%, #1a2332 50%, #0f1b2e 100%) !important;
+                background-attachment: fixed !important;
+            }
             body {
-                background: linear-gradient(135deg, #0a1628 0%, #1a2332 50%, #0f1b2e 100%);
                 color: #e0e6ed;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+            }
+            
+            /* 响应式布局 - 移动端适配 */
+            @media (max-width: 768px) {
+                .q-card {
+                    border-radius: 16px !important;
+                    margin-bottom: 16px !important;
+                }
+                .card-content {
+                    padding: 16px !important;
+                }
+                .section-title {
+                    font-size: 1rem !important;
+                    margin-bottom: 16px !important;
+                }
+                .q-btn {
+                    min-height: 44px !important;
+                    font-size: 14px !important;
+                    padding: 10px 16px !important;
+                }
+                .q-input, .q-textarea {
+                    min-height: 44px !important;
+                    font-size: 16px !important;
+                }
+                /* 移动端单列布局 */
+                .mobile-layout {
+                    flex-direction: column !important;
+                }
+                /* 移动端按钮全宽 */
+                .mobile-full-width {
+                    width: 100% !important;
+                }
+            }
+            
+            /* 响应式布局 - 移动端自动适配 */
+            @media (max-width: 768px) {
+                /* 移动端单列布局 */
+                .mobile-layout {
+                    flex-direction: column !important;
+                }
+                /* 移动端全宽 */
+                .mobile-layout > .flex-1 {
+                    flex: 1 1 100% !important;
+                    min-width: 100% !important;
+                }
+                /* 移动端按钮全宽 */
+                .mobile-full-width {
+                    width: 100% !important;
+                }
+                /* 移动端字体调整 */
+                .title-text {
+                    font-size: 1.5rem !important;
+                }
+                /* 移动端卡片内边距 */
+                .card-content {
+                    padding: 16px !important;
+                }
+            }
+            
+            /* 确保移动端viewport正确 */
+            @media (max-width: 768px) {
+                html, body {
+                    overflow-x: hidden;
+                }
+            }
+            
+            /* 优化弹窗滚动条样式，确保文案不被遮挡 */
+            .q-dialog .q-card {
+                border-radius: 16px !important;
+                box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6) !important;
+                overflow: hidden !important;
+            }
+            
+            /* 确保弹窗阴影也是圆润的 */
+            .q-dialog {
+                border-radius: 16px !important;
+            }
+            
+            .q-dialog__inner {
+                border-radius: 16px !important;
+            }
+            
+            /* 确保弹窗遮罩层（overlay）保持默认样式，不影响页面背景 */
+            .q-overlay,
+            .q-dialog__backdrop {
+                background: rgba(0, 0, 0, 0.4) !important;
+            }
+            
+            /* 确保弹窗打开时，body 和 html 背景色不变，无论Quasar添加什么类 */
+            body.q-body--dialog,
+            body.q-body--dialog--active,
+            html.q-body--dialog,
+            html.q-body--dialog--active,
+            body[class*="dialog"],
+            html[class*="dialog"] {
+                background: linear-gradient(135deg, #0a1628 0%, #1a2332 50%, #0f1b2e 100%) !important;
+                background-attachment: fixed !important;
+            }
+            
+            /* 确保页面容器背景也不变 */
+            .q-page-container,
+            .q-page {
+                background: transparent !important;
+            }
+            
+            /* 移除弹窗内卡片元素的阴影，避免长方形阴影 */
+            .q-dialog .q-card .q-card {
+                box-shadow: none !important;
+                border-radius: 8px !important;
+            }
+            
+            /* 确保弹窗中所有label都能正确换行，不会超出容器 */
+            .q-dialog .q-card .q-label,
+            .q-dialog .q-card label {
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                white-space: normal !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+                display: block !important;
+                overflow: hidden !important;
+            }
+            
+            /* 确保弹窗中的column容器不会导致内容溢出 */
+            .q-dialog .q-card .q-column {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* 弹窗内容区域滚动优化 */
+            .q-dialog .q-card > div {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(0, 150, 255, 0.6) rgba(10, 22, 40, 0.5);
+            }
+            
+            .q-dialog .q-card > div::-webkit-scrollbar {
+                width: 8px;
+            }
+            
+            .q-dialog .q-card > div::-webkit-scrollbar-track {
+                background: rgba(10, 22, 40, 0.5);
+                border-radius: 4px;
+            }
+            
+            .q-dialog .q-card > div::-webkit-scrollbar-thumb {
+                background: rgba(0, 150, 255, 0.6);
+                border-radius: 4px;
+            }
+            
+            .q-dialog .q-card > div::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 150, 255, 0.8);
+            }
+            
+            /* 确保弹窗内的文本不会被截断 */
+            .q-dialog .q-card label,
+            .q-dialog .q-card .q-label {
+                word-wrap: break-word;
+                word-break: break-word;
+                overflow-wrap: break-word;
+                white-space: normal !important;
+            }
+            
+            /* 弹窗内长文本自动换行 */
+            .q-dialog .q-card {
+                overflow: visible !important;
+                box-sizing: border-box !important;
+            }
+            
+            .q-dialog .q-card > div {
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* 确保弹窗内所有元素不超出边界 */
+            .q-dialog .q-card * {
+                box-sizing: border-box;
+                max-width: 100%;
+            }
+            
+            /* 确保grid布局响应式 */
+            .q-dialog .q-grid {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            
+            .q-dialog .q-grid > * {
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+            
+            /* 确保弹窗内所有文本和输入框都在框内 */
+            .q-dialog .q-card .q-input,
+            .q-dialog .q-card .q-textarea,
+            .q-dialog .q-card input,
+            .q-dialog .q-card textarea {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* 确保标签和文本不超出 */
+            .q-dialog .q-card .q-label,
+            .q-dialog .q-card label {
+                max-width: 100% !important;
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
+                word-break: break-word !important;
+                white-space: normal !important;
+                display: block !important;
+            }
+            
+            /* 确保所有容器都有正确的padding，内容不贴边 */
+            .q-dialog .q-card > div {
+                padding-left: 24px !important;
+                padding-right: 24px !important;
+            }
+            
+            /* 确保输入框和表单元素有合适的宽度 */
+            .q-dialog .q-card .q-input__wrapper,
+            .q-dialog .q-card .q-field__control {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            
+            /* 确保所有文本容器都有合适的边距 */
+            .q-dialog .q-card .q-label,
+            .q-dialog .q-card label {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+            
+            /* 确保卡片内容不超出 */
+            .q-dialog .q-card .q-card {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* 确保输入框的label和placeholder完整显示 */
+            .q-dialog .q-card .q-field__label,
+            .q-dialog .q-card .q-input__label {
+                max-width: 100% !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                white-space: normal !important;
+                display: block !important;
+            }
+            
+            .q-dialog .q-card .q-field__control,
+            .q-dialog .q-card .q-input__control {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            
+            .q-dialog .q-card .q-field__native,
+            .q-dialog .q-card .q-input__native {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* 确保输入框的placeholder完整显示 */
+            .q-dialog .q-card .q-field__native::placeholder,
+            .q-dialog .q-card .q-input__native::placeholder {
+                white-space: normal !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+            }
+            
+            /* 确保按钮和操作元素不超出 */
+            .q-dialog .q-card .q-btn {
+                max-width: 100% !important;
+                box-sizing: border-box !important;
             }
             .q-page {
                 padding: 0 !important;
@@ -456,11 +741,14 @@ class WebUIController:
                     # 模块选择
                     self.module_selector.render()
                     
+                    # 高级功能（放在通知配置上面）
+                    self.advanced_features.render()
+                    
                     # 通知配置
                     self.notification_config.render()
                 
-                # 右侧：执行控制区域（60%宽度，恢复原来的大小，修复滚动bug）
-                with ui.column().classes('flex-1').style('display: flex; flex-direction: column; gap: 24px; min-width: 0; flex: 0 0 60%; overflow: visible;'):
+                # 右侧：执行控制区域（60%宽度，移动端100%）
+                with ui.column().classes('flex-1 desktop-view').style('display: flex; flex-direction: column; gap: 24px; min-width: 0; flex: 0 0 60%; overflow: visible;'):
                     self._render_execution_panel()  # 执行控制高度变小
                     self._render_log_panel()  # 执行日志高度变高，恢复原来的大小
                     self._render_recording_panel()
@@ -511,12 +799,20 @@ class WebUIController:
                     with ui.row().classes('gap-3').style('flex: 0 0 auto; display: flex; align-items: center; flex-wrap: nowrap; overflow: hidden;'):
                         self.headless_checkbox = ui.checkbox('无头模式', value=False).style('font-size: 12px; flex-shrink: 0;')
                         self.verbose_checkbox = ui.checkbox('详细输出', value=True).style('font-size: 12px; flex-shrink: 0;')
+                        self.video_recording_checkbox = ui.checkbox('视频录制', value=False).style('font-size: 12px; flex-shrink: 0;')
+                        
                         # 测试报告按钮（放在执行选项同一行）
                         ui.button(
                             '📊 测试报告',
                             on_click=self.show_test_reports,
                             icon='assessment'
                         ).style('min-height: 30px; padding: 4px 12px; font-size: 12px; background: rgba(0, 150, 255, 0.15); border: 1px solid rgba(0, 150, 255, 0.3);')
+                        
+                        # 初始化重试次数和超时时间的默认值（从高级功能中获取）
+                        self.retry_count_input = None
+                        self.timeout_input = None
+                        self.retry_count = 2  # 默认值
+                        self.timeout_seconds = 30  # 默认值
     
     def _render_log_panel(self):
         """渲染日志面板（增大输出框长度/宽度，占模块大部分，减少padding让日志区域更宽）
@@ -570,7 +866,7 @@ class WebUIController:
                         ).style('min-height: 36px; padding: 6px 14px; font-size: 13px;')
                 
                 # 使用更好的文字样式，增加内边距
-                ui.markdown("""
+            ui.markdown("""
                 <div style="padding: 0 8px; line-height: 1.8;">
                 <p style="font-size: 15px; font-weight: 600; color: #e0e6ed; margin-bottom: 16px;">使用Playwright Codegen录制用例：</p>
                 
@@ -578,7 +874,7 @@ class WebUIController:
                 <li style="margin-bottom: 8px;">点击下方"启动录制"按钮打开录制工具</li>
                 <li style="margin-bottom: 8px;">在浏览器中操作目标Web应用</li>
                 <li style="margin-bottom: 8px;">录制工具会自动生成Python代码</li>
-                <li style="margin-bottom: 8px;">复制生成的代码，点击"代码转换"按钮自动转换为测试用例</li>
+                <li style="margin-bottom: 8px;">复制生成的代码，点击"代码转换"按钮，选择模块并转换代码，确认后保存</li>
                 </ol>
                 
                 <p style="font-size: 15px; font-weight: 600; color: #e0e6ed; margin-bottom: 12px;">录制命令：</p>
@@ -670,38 +966,66 @@ class WebUIController:
         if self.verbose_checkbox.value:
             cmd_parts.append('-s')
         
+        # 视频录制控制（通过环境变量传递）
+        if self.video_recording_checkbox.value:
+            os.environ['ENABLE_VIDEO_RECORDING'] = '1'
+        else:
+            os.environ['ENABLE_VIDEO_RECORDING'] = '0'
+        
+        # 分布式/并行执行支持（如果启用）
+        # 可以通过环境变量或配置启用
+        parallel_workers = os.environ.get('PYTEST_WORKERS', '1')
+        if parallel_workers != '1':
+            cmd_parts.extend(['-n', str(parallel_workers)])
+        
         # 生成自定义中文HTML报告
         reports_dir = Path("reports")
         reports_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        custom_html_report = reports_dir / f"report_{timestamp}.html"
+        # 使用中文文件名
+        custom_html_report = reports_dir / f"WebUI自动化测试报告_{timestamp}.html"
         
         # 只生成pytest-html报告作为备用（不显示给用户）
-        pytest_html_report = reports_dir / f"report_pytest_{timestamp}.html"
+        # 使用中文文件名（pytest-html已修复编码问题）
+        pytest_html_report = reports_dir / f"pytest自动化测试报告_{timestamp}.html"
+        
+        # 获取重试次数和超时时间（从高级功能面板获取）
+        retry_count = self.advanced_features.get_retry_count()
+        timeout_seconds = self.advanced_features.get_timeout_seconds()
         
         cmd_parts.extend([
-            '--tb=short',
+            '--tb=long',  # 使用long格式显示更详细的错误信息
             '--asyncio-mode=auto',
             '--html', str(pytest_html_report),
-            '--self-contained-html'  # pytest-html报告（仅用于数据解析）
+            '--self-contained-html',  # pytest-html报告（仅用于数据解析）
+            '--capture=sys',  # 捕获sys.stdout和sys.stderr，让pytest-html能捕获日志
+            '--log-cli-level=INFO',  # 显示INFO级别的日志
+            '--log-cli-format=%(message)s',  # 简化的日志格式，避免解析错误
+            '--reruns', str(retry_count),  # 重试次数
+            '--reruns-delay', '1'  # 重试延迟（秒）
         ])
+        
+        # 设置超时时间（通过环境变量传递给测试用例）
+        os.environ['PYTEST_TIMEOUT'] = str(timeout_seconds)
         
         # 保存报告路径供后续使用（使用自定义中文报告）
         self.current_report_path = custom_html_report
         self.pytest_html_report_path = pytest_html_report
         
-        # 在后台线程中执行
-        thread = threading.Thread(target=self._run_pytest, args=(cmd_parts,), daemon=True)
-        thread.start()
-        
+        # 先输出日志信息（在启动线程之前）
         self.log('开始执行测试...')
         self.log(f'执行模块: {", ".join(self.module_selector.get_selected_module_names())}')
+        self.log(f'重试次数: {retry_count}, 超时时间: {timeout_seconds}秒')
         # 显示可读的命令格式（对于包含or的表达式，用引号包裹以便阅读）
         cmd_display = ' '.join(cmd_parts)
         if ' or ' in cmd_display:
             # 在显示时用引号包裹标记表达式，便于阅读
             cmd_display = cmd_display.replace(f'-m {selected_marks}', f'-m "{selected_marks}"')
         self.log(f'执行命令: {cmd_display}')
+        
+        # 在后台线程中执行
+        thread = threading.Thread(target=self._run_pytest, args=(cmd_parts,), daemon=True)
+        thread.start()
     
     def _run_pytest(self, cmd_parts: list):
         """在后台线程中运行pytest"""
@@ -709,47 +1033,67 @@ class WebUIController:
         import locale
         start_time = datetime.now()
         
+        # 在后台线程开始时输出日志
+        self.log('pytest进程已启动，正在执行测试...')
+        
         try:
-            # 检测系统编码：Windows默认使用GBK，Linux/Mac使用UTF-8
-            # 获取系统默认编码
-            if sys.platform == 'win32':
-                # Windows: 尝试使用GBK编码，如果失败则使用系统默认编码
-                try:
-                    system_encoding = locale.getpreferredencoding() or 'gbk'
-                except:
-                    system_encoding = 'gbk'
-            else:
-                # Linux/Mac: 使用UTF-8
-                system_encoding = 'utf-8'
+            # 统一使用UTF-8编码，确保中文和特殊字符正确显示
+            # 设置环境变量确保子进程使用UTF-8编码
+            import os
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
             
-            # subprocess.Popen使用列表格式时，会将每个元素作为单独的参数传递
-            # 所以 ['pytest', '-m', 'teaching or exam', '-v'] 会正确传递
-            # 'teaching or exam' 会作为一个完整的字符串参数传递给pytest
             self.current_process = subprocess.Popen(
                 cmd_parts,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding=system_encoding,
+                encoding='utf-8',  # 使用UTF-8编码，确保中文正确显示
                 errors='replace',  # 如果遇到无法解码的字符，用替换字符代替，避免崩溃
-                bufsize=1
+                bufsize=1,
+                env=env  # 传递环境变量
             )
             
             # 实时读取输出
             for line in iter(self.current_process.stdout.readline, ''):
                 if line:
-                    # 确保输出是UTF-8编码的字符串（用于日志显示）
+                    # subprocess已经使用UTF-8编码读取，直接使用
                     try:
-                        # 如果line已经是字符串（text=True），直接使用
                         log_line = line.strip()
-                    except UnicodeDecodeError:
+                        # 处理Unicode转义字符（如 \u2713 应该显示为 ✓，\u540d\u79f0 应该显示为 名称）
+                        if '\\u' in log_line:
+                            try:
+                                # 方法1: 先编码为bytes，再解码为unicode_escape
+                                # 注意：unicode_escape需要从latin-1编码的bytes解码
+                                log_line = log_line.encode('latin-1', errors='ignore').decode('unicode_escape')
+                            except:
+                                try:
+                                    # 方法2: 如果方法1失败，尝试从utf-8编码的bytes解码
+                                    log_line = log_line.encode('utf-8').decode('unicode_escape')
+                                except:
+                                    pass  # 如果解码失败，保持原样
+                    except (UnicodeDecodeError, UnicodeError):
                         # 如果还有编码问题，使用errors='replace'
-                        log_line = line.encode(system_encoding, errors='replace').decode('utf-8', errors='replace').strip()
+                        log_line = line.encode('utf-8', errors='replace').decode('utf-8', errors='replace').strip()
                     
-                    self.log(log_line)
-                    self.log_content.append(log_line)
-                    if len(self.log_content) > self.max_log_lines:
-                        self.log_content.pop(0)
+                    # 只调用log()方法，它会自动添加到log_content中，避免重复
+                    # 注意：log()方法会自动添加时间戳，所以直接传入log_line即可
+                    if log_line:  # 只记录非空行
+                        # 检查是否已经包含时间戳格式 [HH:MM:SS]，如果包含说明是pytest的输出，已经格式化过了
+                        # 这种情况下，pytest的输出会被logger捕获并输出，我们不应该再重复添加
+                        # 但是我们需要记录到log_content中以便导出
+                        if re.match(r'^\[\d{2}:\d{2}:\d{2}\]', log_line):
+                            # 已经包含时间戳，说明是pytest的输出，直接添加到log_content，不调用log()避免重复
+                            if log_line not in self.log_content:
+                                self.log_content.append(log_line)
+                                # 不推送到UI，因为pytest的输出已经通过logger输出了
+                        else:
+                            # 没有时间戳，调用log()方法添加（这会添加时间戳并推送到UI）
+                            self.log(log_line)
+                        
+                        # 限制日志行数
+                        if len(self.log_content) > self.max_log_lines:
+                            self.log_content.pop(0)
             
             self.current_process.wait()
             
@@ -784,16 +1128,384 @@ class WebUIController:
                     parsed = parser.parse_pytest_output(self.test_output)
                     test_stats.update(parsed)
                 
-                # 从pytest-html报告中解析测试用例详情
-                if hasattr(self, 'pytest_html_report_path') and self.pytest_html_report_path and self.pytest_html_report_path.exists():
-                    html_stats = parser.parse_html_report(self.pytest_html_report_path)
-                    if html_stats:
-                        test_stats.update(html_stats)
+                    # 优先从pytest输出中解析测试用例（不依赖HTML报告）
+                    # 这样可以避免HTML解析失败的问题
+                    test_cases_from_output = []
+                    if self.test_output:
+                        output_text = '\n'.join(self.test_output)
+                        # 直接从pytest输出中解析测试用例
+                        lines = output_text.split('\n')
+                        test_name_to_info = {}  # {test_name: {'status': 'passed', 'duration': 28.64}}
+                        
+                        # 匹配测试用例名称（完整路径，包含test_cases/前缀）
+                        # 格式：test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation
+                        # 注意：只匹配完整的测试名称行，避免匹配到日志中的其他内容
+                        # 支持两种格式：
+                        # 1. 完整路径：test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation
+                        # 2. 收集阶段：test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation（在collecting阶段）
+                        test_name_pattern = r'^test_cases/[^:\s]+\.py::[^:\s]+::[^:\s]+(?:\[[^\]]+\])?$'
+                        # 也匹配collecting阶段的测试用例（不带test_cases/前缀的）
+                        test_name_pattern_collecting = r'^\s*test_cases/[^:\s]+\.py::[^:\s]+::[^:\s]+(?:\[[^\]]+\])?$'
+                        # 匹配状态行：PASSED [ 33%] 或 FAILED [ 33%]
+                        status_pattern = r'^\s*(PASSED|FAILED|SKIPPED|ERROR|RERUN)\s*\['
+                        
+                        # 从日志看，pytest输出格式是：
+                        # test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation
+                        # PASSED                                                                   [ 33%]
+                        # 时长信息在HTML报告的Duration列中，不在pytest输出中，需要从HTML报告解析时长
+                        # 但我们可以先解析测试名称和状态
+                        
+                        for i, line in enumerate(lines):
+                            # 查找测试名称行（完整路径，必须是整行匹配）
+                            line_stripped = line.strip()
+                            test_name_match = re.match(test_name_pattern, line_stripped)
+                            # 如果整行匹配失败，尝试匹配行中的测试名称（可能在行首有空格或其他字符）
+                            if not test_name_match:
+                                # 使用更精确的正则表达式，避免匹配到带尾随字符的测试名称
+                                # 匹配格式：test_cases/xxx.py::Class::method，确保后面跟着空格、换行或行尾
+                                # 使用负向前瞻，确保后面不是字母、数字、下划线、单引号、方括号等
+                                test_name_match = re.search(r'(test_cases/[^:\s]+\.py::[^:\s]+::[^:\s]+(?:\[[^\]]+\])?)(?![^\s\n\]\',])', line)
+                            
+                            if test_name_match:
+                                # 提取测试名称
+                                if isinstance(test_name_match, re.Match):
+                                    test_name = test_name_match.group(1) if test_name_match.lastindex else test_name_match.group(0)
+                                else:
+                                    test_name = test_name_match.group(1) if test_name_match.lastindex else test_name_match.group(0)
+                                test_name = test_name.strip()
+                                
+                                # 立即清理测试名称（去除HTML标签和尾随字符），用于去重判断
+                                # 先去除所有尾随的特殊字符（包括']', ',', 单引号等）
+                                clean_name_for_key = re.sub(r'<[^>]+>', '', test_name).strip()
+                                # 去除尾部的所有非字母数字字符（但保留路径中的斜杠和冒号）
+                                clean_name_for_key = re.sub(r'[^\w\s/:\.\-\[\]]+$', '', clean_name_for_key).strip()
+                                # 再次清理尾部的特殊字符组合（包括']', ',', 单引号等）
+                                clean_name_for_key = re.sub(r'[\]\',]+$', '', clean_name_for_key).strip()
+                                clean_name_for_key = re.sub(r'[,</>\']+$', '', clean_name_for_key).strip()
+                                clean_name_for_key = re.sub(r"[,']+$", '', clean_name_for_key).strip()
+                                
+                                # 如果清理后的名称为空，跳过
+                                if not clean_name_for_key:
+                                    continue
+                                
+                                # 在后续行中查找状态（最多查找10行，因为可能有重试）
+                                status = 'passed'  # 默认状态
+                                for j in range(i+1, min(i+11, len(lines))):
+                                    next_line = lines[j]
+                                    # 查找状态（支持多种格式）
+                                    status_match = re.search(status_pattern, next_line)
+                                    if status_match:
+                                        status = status_match.group(1).lower()
+                                        break
+                                    # 也检查FAILED/PASSED行（在short test summary info部分）
+                                    if re.search(r'^\s*(FAILED|PASSED|SKIPPED|ERROR)\s+', next_line):
+                                        status_match = re.search(r'^\s*(FAILED|PASSED|SKIPPED|ERROR)\s+', next_line)
+                                        if status_match:
+                                            status = status_match.group(1).lower()
+                                            break
+                                
+                                # 在存储之前就进行去重检查（使用清理后的名称）
+                                # 如果已经存在相同的清理后的名称，跳过（除非是失败状态需要更新）
+                                if clean_name_for_key in test_name_to_info:
+                                    # 如果当前状态是passed，且已存在，跳过（避免重复）
+                                    if status == 'passed':
+                                        continue
+                                    # 如果当前状态是failed或error，更新状态
+                                    elif status in ['failed', 'error']:
+                                        test_name_to_info[clean_name_for_key]['status'] = status
+                                        self.log(f'更新测试用例状态: {clean_name_for_key}, 新状态: {status}')
+                                        continue
+                                    else:
+                                        # 其他状态（如rerun），也跳过（避免重复）
+                                        continue
+                                
+                                # 使用清理后的名称作为key进行去重判断
+                                # 保存测试用例信息（时长稍后从HTML报告补充，或使用默认值0）
+                                # 只保存第一次出现的测试用例，避免重复（除非是失败状态）
+                                test_name_to_info[clean_name_for_key] = {
+                                    'status': status,
+                                    'duration': 0.0,  # 默认时长，稍后从HTML报告补充
+                                    'name': clean_name_for_key  # 使用清理后的名称
+                                }
+                                self.log(f'解析到测试用例: {clean_name_for_key}, 状态: {status}')
+                        
+                        # 转换为测试用例列表，去重并保留失败和重试的分别条目
+                        if test_name_to_info:
+                            # 清理测试名称，去重，但保留失败和重试的分别条目
+                            cleaned_test_cases = []
+                            seen_names = set()  # 用于去重
+                            for test_name, test_info in test_name_to_info.items():
+                                # 清理测试名称（去除HTML标签和尾随字符）
+                                clean_name = re.sub(r'<[^>]+>', '', test_name).strip()
+                                # 只去除尾部的特殊字符，不要去除路径中的斜杠
+                                clean_name = re.sub(r'[,</>\']+$', '', clean_name).strip()
+                                # 去除尾部的逗号和单引号（但保留路径中的斜杠）
+                                clean_name = re.sub(r"[,']+$", '', clean_name).strip()
+                                
+                                if not clean_name:
+                                    continue
+                                
+                                # 提取基础名称（用于去重判断）
+                                # 例如：test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation
+                                # 基础名称就是完整路径，用于判断是否是同一个测试用例
+                                base_name = clean_name
+                                
+                                # 如果已经见过这个测试用例，跳过（去重）
+                                if base_name in seen_names:
+                                    continue
+                                
+                                seen_names.add(base_name)
+                                cleaned_test_cases.append({
+                                    'name': clean_name,
+                                    'status': test_info.get('status', 'passed'),
+                                    'duration': test_info.get('duration', 0.0)
+                                })
+                            
+                            test_cases_from_output = cleaned_test_cases
+                            self.log(f'从pytest输出直接解析到 {len(test_cases_from_output)} 个测试用例（去重后，保留失败和重试分别条目，不依赖HTML报告）')
+                            
+                            # 尝试从HTML报告补充时长信息（如果HTML报告存在）
+                            # 即使Test列为空，我们也可以从Duration列和Result列推断
+                            if hasattr(self, 'pytest_html_report_path') and self.pytest_html_report_path and self.pytest_html_report_path.exists():
+                                try:
+                                    # 直接从HTML文件中解析Duration列，不依赖Test列
+                                    from bs4 import BeautifulSoup
+                                    with open(self.pytest_html_report_path, 'r', encoding='utf-8', errors='replace') as f:
+                                        html_content = f.read()
+                                    soup = BeautifulSoup(html_content, 'html.parser')
+                                    table = soup.find('table', {'id': 'results-table'}) or soup.find('table', class_='results')
+                                    if table:
+                                        # 查找所有tbody（可能有多个，每个测试用例一个）
+                                        all_tbodies = table.find_all('tbody')
+                                        self.log(f'找到 {len(all_tbodies)} 个tbody')
+                                        
+                                        # 按顺序匹配Duration列和Result列（区分失败和重试）
+                                        # 只解析真正的测试行，跳过extra详情行
+                                        test_rows_info = []  # 存储每行的信息：{'duration': float, 'result': str, 'test_name': str}
+                                        row_count = 0
+                                        for tbody_idx, tbody in enumerate(all_tbodies):
+                                            rows = tbody.find_all('tr')
+                                            self.log(f'tbody {tbody_idx+1} 有 {len(rows)} 行')
+                                            for idx, row in enumerate(rows):
+                                                row_count += 1
+                                                # 检查是否是extra行（详情行）
+                                                row_class = row.get('class', [])
+                                                if isinstance(row_class, list) and 'extra' in row_class:
+                                                    self.log(f'跳过extra行 tbody{tbody_idx+1}-row{idx+1}')
+                                                    continue  # 跳过详情行
+                                                
+                                                cells = row.find_all('td')
+                                                if len(cells) > 2:
+                                                    # 检查第一个cell是否是Result列（col-result类）
+                                                    first_cell = cells[0]
+                                                    first_cell_class = first_cell.get('class', [])
+                                                    if isinstance(first_cell_class, list) and 'col-result' not in first_cell_class:
+                                                        self.log(f'跳过非测试行 tbody{tbody_idx+1}-row{idx+1}，第一个cell类: {first_cell_class}')
+                                                        continue  # 跳过非测试行
+                                                    
+                                                    # 解析Result列（第一个cell）
+                                                    result_text = first_cell.get_text(strip=True).lower()
+                                                    result_status = 'passed'  # 默认
+                                                    if 'failed' in result_text:
+                                                        result_status = 'failed'
+                                                    elif 'rerun' in result_text:
+                                                        result_status = 'rerun'
+                                                    elif 'passed' in result_text:
+                                                        result_status = 'passed'
+                                                    elif 'skipped' in result_text:
+                                                        result_status = 'skipped'
+                                                    
+                                                    # 解析Test列（第二个cell，索引1）
+                                                    test_cell = cells[1] if len(cells) > 1 else None
+                                                    test_name = ''
+                                                    if test_cell:
+                                                        test_name = test_cell.get_text(strip=True)
+                                                    
+                                                    # 解析Duration列（第三个cell，索引2）
+                                                    duration_cell = cells[2]  # Duration列
+                                                    duration_text = duration_cell.get_text(strip=True)
+                                                    duration = 0.0
+                                                    # 解析时长 "28.64s" -> 28.64
+                                                    if 's' in duration_text.lower():
+                                                        try:
+                                                            duration = float(re.sub(r'[^\d.]', '', duration_text))
+                                                            self.log(f'解析到Duration tbody{tbody_idx+1}-row{idx+1}: {duration}s, Result: {result_status}, Test: {test_name[:50]}...')
+                                                        except Exception as e:
+                                                            self.log(f'解析Duration失败 tbody{tbody_idx+1}-row{idx+1}: {e}')
+                                                            duration = 0.0
+                                                    
+                                                    test_rows_info.append({
+                                                        'duration': duration,
+                                                        'result': result_status,
+                                                        'test_name': test_name
+                                                    })
+                                        
+                                        self.log(f'最终解析到 {len(test_rows_info)} 个测试行（总行数: {row_count}）')
+                                        
+                                        # 按顺序更新测试用例的时长和状态（不累加，分别保留失败和重试）
+                                        # 重要：HTML报告中的每个条目（rerun、passed、failed）都应该在自定义报告中显示
+                                        if len(test_rows_info) > 0:
+                                            # 为HTML报告中的每个条目创建测试用例，确保数量一致
+                                            new_test_cases = []
+                                            for row_info in test_rows_info:
+                                                row_test_name = row_info.get('test_name', '').strip()
+                                                # 清理测试名称（去除中文信息，只保留原始路径）
+                                                clean_row_name = re.sub(r'<[^>]+>', '', row_test_name).strip()
+                                                # 去除中文信息部分（[模块:xxx] [类:xxx]）
+                                                clean_row_name = re.sub(r'\s*\[模块:[^\]]+\]\s*', '', clean_row_name)
+                                                clean_row_name = re.sub(r'\s*\[类:[^\]]+\]\s*', '', clean_row_name)
+                                                clean_row_name = re.sub(r"[,']+$", '', clean_row_name).strip()
+                                                
+                                                # 如果清理后的名称为空，尝试从原始名称提取
+                                                if not clean_row_name:
+                                                    clean_row_name = row_test_name.strip()
+                                                
+                                                # 查找是否已存在匹配的测试用例（用于获取基础名称）
+                                                base_name = clean_row_name
+                                                for case in test_cases_from_output:
+                                                    case_name = case.get('name', '')
+                                                    # 清理case_name（去除中文信息）
+                                                    clean_case_name = re.sub(r'\s*\[模块:[^\]]+\]\s*', '', case_name)
+                                                    clean_case_name = re.sub(r'\s*\[类:[^\]]+\]\s*', '', clean_case_name)
+                                                    clean_case_name = clean_case_name.strip()
+                                                    
+                                                    # 如果匹配，使用case_name作为基础名称
+                                                    if clean_case_name and clean_row_name and (clean_case_name in clean_row_name or clean_row_name in clean_case_name):
+                                                        base_name = case_name.split(' [模块:')[0].split(' [类:')[0].strip()
+                                                        break
+                                                
+                                                # 创建新条目，使用基础名称和HTML报告中的状态、时长
+                                                new_case = {
+                                                    'name': base_name,
+                                                    'status': row_info['result'],
+                                                    'duration': row_info['duration']
+                                                }
+                                                new_test_cases.append(new_case)
+                                            
+                                            # 替换原有的测试用例列表，确保与HTML报告中的条目数量一致
+                                            if new_test_cases:
+                                                test_cases_from_output = new_test_cases
+                                                self.log(f'从HTML报告创建了 {len(new_test_cases)} 个测试用例条目（与pytest-html报告保持一致，包括rerun、passed、failed等所有状态）')
+                                        else:
+                                            self.log(f'警告: 未解析到任何测试行信息')
+                                except Exception as e:
+                                    self.log(f'从HTML报告补充时长信息失败: {e}')
+                                    import traceback
+                                    self.log(traceback.format_exc())
+                            
+                            test_stats['test_cases'] = test_cases_from_output
+                        
+                        # 如果从输出中解析失败，尝试从HTML报告解析（备用方案）
+                        if not test_cases_from_output and hasattr(self, 'pytest_html_report_path') and self.pytest_html_report_path and self.pytest_html_report_path.exists():
+                            html_stats = parser.parse_html_report(self.pytest_html_report_path)
+                            if html_stats:
+                                test_stats.update(html_stats)
+                            
+                            test_cases = parser.parse_test_cases_from_html(self.pytest_html_report_path)
+                            if test_cases:
+                                test_stats['test_cases'] = test_cases
+                                self.log(f'从HTML报告解析到 {len(test_cases)} 个测试用例（备用方案）')
+                        elif not test_cases_from_output:
+                            self.log(f'警告: 未能从pytest输出中解析到测试用例详情')
                     
-                    # 解析HTML报告中的测试用例列表
-                    test_cases = parser.parse_test_cases_from_html(self.pytest_html_report_path)
-                    if test_cases:
-                        test_stats['test_cases'] = test_cases
+                    # 如果HTML解析结果不足或为空，尝试从pytest输出补充
+                    # 注意：即使HTML解析到了测试用例，如果数量不足，也需要从pytest输出补充
+                    html_test_count = len(test_stats.get('test_cases', []))
+                    total_test_count = test_stats.get('total', 0)
+                    self.log(f'准备生成报告：HTML解析到 {html_test_count} 个测试用例，总数: {total_test_count}')
+                    if html_test_count < total_test_count or html_test_count == 0:
+                        if self.test_output:
+                            output_text = '\n'.join(self.test_output)
+                            # 匹配测试用例名称（例如：test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation PASSED）
+                            # re模块已在文件顶部导入，不需要重复导入
+                            # 更精确的匹配模式：匹配完整的测试路径和状态
+                            # 支持多种格式：test_file.py::Class::method PASSED 或 test_file.py::Class::method [PASSED]
+                            # 匹配测试用例：test_file.py::Class::method PASSED 格式
+                            # 注意：pytest输出中，PASSED/FAILED等可能在同一行或下一行
+                            # 改进：匹配所有测试用例，包括带参数化的（如 test_name[param]）
+                            test_pattern = r'(test_\S+\.py::\S+::\S+(?:\[[^\]]+\])?)\s+\[?(PASSED|FAILED|SKIPPED|ERROR|RERUN)\]?'
+                            matches = re.findall(test_pattern, output_text)
+                            self.log(f'第一次匹配（同行模式）找到 {len(matches)} 个测试用例')
+                            
+                            # 如果没找到或数量不足，尝试匹配更宽松的模式（测试名称和状态可能在不同行）
+                            # 从日志看，pytest输出格式是：
+                            # test_cases/teaching/test_teaching_first.py::TestTeachingNavigation::test_teaching_module_navigation
+                            # PASSED                                                                   [ 33%]
+                            # 所以需要按行匹配，并且需要匹配完整路径（包含test_cases/）
+                            if not matches or len(matches) < total_test_count:
+                                lines = output_text.split('\n')
+                                test_name_to_status = {}
+                                test_name_to_duration = {}  # 存储每个测试用例的时长
+                                # 改进：匹配完整路径，包括test_cases/前缀
+                                test_name_pattern = r'(test_cases/[^:\s]+\.py::[^:\s]+::[^:\s]+(?:\[[^\]]+\])?)'
+                                # 也匹配不带test_cases/前缀的（备用）
+                                test_name_pattern_alt = r'(test_[^:\s]+\.py::[^:\s]+::[^:\s]+(?:\[[^\]]+\])?)'
+                                status_pattern = r'^\s*(PASSED|FAILED|SKIPPED|ERROR|RERUN)\s*'
+                                # 匹配时长：如 "28.64s" 或 "28.64 s"
+                                duration_pattern = r'(\d+\.?\d*)\s*s\s*'
+                                
+                                for i, line in enumerate(lines):
+                                    # 查找测试名称行（优先匹配完整路径）
+                                    test_name_match = re.search(test_name_pattern, line)
+                                    if not test_name_match:
+                                        test_name_match = re.search(test_name_pattern_alt, line)
+                                    
+                                    if test_name_match:
+                                        test_name = test_name_match.group(1)
+                                        # 在后续行中查找状态和时长（最多查找5行）
+                                        for j in range(i+1, min(i+6, len(lines))):
+                                            status_match = re.search(status_pattern, lines[j])
+                                            if status_match:
+                                                status = status_match.group(1)
+                                                # 跳过RERUN状态，只保留最终状态（FAILED > PASSED）
+                                                if status != 'RERUN' or test_name not in test_name_to_status:
+                                                    # 如果已有状态，优先保留FAILED/ERROR
+                                                    if test_name not in test_name_to_status or \
+                                                       (status in ['FAILED', 'ERROR'] and test_name_to_status[test_name] not in ['FAILED', 'ERROR']):
+                                                        test_name_to_status[test_name] = status
+                                                
+                                                # 尝试从同一行或下一行提取时长
+                                                duration_match = re.search(duration_pattern, lines[j])
+                                                if duration_match:
+                                                    test_name_to_duration[test_name] = float(duration_match.group(1))
+                                                break
+                                
+                                if test_name_to_status:
+                                    matches = [(name, status) for name, status in test_name_to_status.items()]
+                                    self.log(f'从pytest输出解析到 {len(matches)} 个测试用例（按行匹配）')
+                            
+                            if matches:
+                                fallback_cases = []
+                                for test_name, status in matches:
+                                    # 提取执行时长（优先使用从输出中解析到的时长，否则平均分配）
+                                    duration = test_name_to_duration.get(test_name, 0.0)
+                                    if duration == 0.0:
+                                        # 尝试从总结行提取总时长，然后平均分配
+                                        summary_match = re.search(r'(\d+)\s+(?:passed|failed|skipped|error).*?in\s+([\d.]+)s', output_text, re.IGNORECASE)
+                                        if summary_match:
+                                            total_tests = int(summary_match.group(1))
+                                            total_duration = float(summary_match.group(2))
+                                            if total_tests > 0:
+                                                duration = total_duration / total_tests
+                                    
+                                    fallback_cases.append({
+                                        'name': test_name,
+                                        'status': status.lower(),
+                                        'duration': duration,
+                                        'error': ''
+                                    })
+                                if fallback_cases:
+                                    # 如果HTML解析结果存在但数量不足，合并结果
+                                    if 'test_cases' in test_stats and test_stats.get('test_cases'):
+                                        # 合并HTML解析和pytest输出解析的结果
+                                        existing_names = {case['name'] for case in test_stats['test_cases']}
+                                        for case in fallback_cases:
+                                            if case['name'] not in existing_names:
+                                                test_stats['test_cases'].append(case)
+                                        self.log(f'合并后共 {len(test_stats["test_cases"])} 个测试用例（HTML: {len(test_stats["test_cases"]) - len(fallback_cases)}, pytest输出: {len(fallback_cases)}）')
+                                    else:
+                                        test_stats['test_cases'] = fallback_cases
+                                        self.log(f'从pytest输出解析到 {len(fallback_cases)} 个测试用例（备用方案）')
                 
                 # 生成自定义中文HTML报告
                 if hasattr(self, 'current_report_path') and self.current_report_path:
@@ -804,17 +1516,35 @@ class WebUIController:
                     )
                     self.log(f'自定义中文报告已生成: {self.current_report_path}')
             except Exception as e:
-                self.log(f'生成自定义报告失败: {e}')
+                error_msg = f'生成自定义报告失败: {e}'
+                self.log(error_msg)
                 import traceback
-                self.log(traceback.format_exc())
+                tb_str = traceback.format_exc()
+                self.log(tb_str)
+                # 确保异常信息也被添加到log_content中
+                if error_msg not in self.log_content:
+                    self.log_content.append(error_msg)
+                for line in tb_str.split('\n'):
+                    if line.strip() and line.strip() not in self.log_content:
+                        self.log_content.append(line.strip())
             
             # 执行完成（不在后台线程中使用UI操作，避免客户端断开连接问题）
             # ui.run_javascript('window.location.reload()')  # 已移除，避免客户端断开连接警告
             
-        except Exception as e:
-            self.log(f'执行出错: {e}')
-            self.test_duration = 0
-            self.test_output = []
+            except Exception as e:
+                error_msg = f'执行出错: {e}'
+                self.log(error_msg)
+                import traceback
+                tb_str = traceback.format_exc()
+                self.log(tb_str)
+                # 确保异常信息也被添加到log_content中
+                if error_msg not in self.log_content:
+                    self.log_content.append(error_msg)
+                for line in tb_str.split('\n'):
+                    if line.strip() and line.strip() not in self.log_content:
+                        self.log_content.append(line.strip())
+                self.test_duration = 0
+                self.test_output = []
         finally:
             self.is_running = False
             self.status_label.text = '状态: 执行完成'
@@ -848,6 +1578,22 @@ class WebUIController:
             with open(config_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
     
+    def _update_mobile_config(self, enabled: bool):
+        """更新移动端配置"""
+        config_path = Path("config/settings.yaml")
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            if 'playwright' not in config:
+                config['playwright'] = {}
+            if 'device' not in config['playwright']:
+                config['playwright']['device'] = {}
+            config['playwright']['device']['enabled'] = enabled
+            if enabled and 'name' not in config['playwright']['device']:
+                config['playwright']['device']['name'] = 'iPhone 12'
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+    
     def _send_notification(self):
         """发送执行完成通知"""
         try:
@@ -871,14 +1617,29 @@ class WebUIController:
                 parsed = parser.parse_pytest_output(self.test_output)
                 test_stats.update(parsed)
             
-            # 如果HTML报告存在，也尝试从中解析（更准确）
-            if hasattr(self, 'current_report_path') and self.current_report_path:
-                html_stats = parser.parse_html_report(self.current_report_path)
+            # 如果pytest-html报告存在，优先从中解析（更准确）
+            if hasattr(self, 'pytest_html_report_path') and self.pytest_html_report_path and self.pytest_html_report_path.exists():
+                html_stats = parser.parse_html_report(self.pytest_html_report_path)
                 if html_stats:
-                    # 优先使用HTML报告中的统计（更准确）
+                    # 优先使用pytest-html报告中的统计（更准确）
                     test_stats.update(html_stats)
+                    
+                # 解析测试用例详情（用于错误详情）
+                test_cases = parser.parse_test_cases_from_html(self.pytest_html_report_path)
+                if test_cases:
+                    # 提取失败用例的详情
+                    failed_cases = [case for case in test_cases if case.get('status') == 'failed']
+                    if failed_cases:
+                        test_stats['error_details'] = [
+                            {
+                                'name': case.get('name', 'Unknown'),
+                                'error': case.get('error', '')
+                            }
+                            for case in failed_cases[:10]  # 最多10个
+                        ]
             
             # 发送测试报告（包含HTML报告附件）
+            # 使用自定义报告路径作为附件（更美观的中文报告）
             report_path = getattr(self, 'current_report_path', None)
             notification.send_test_report(
                 modules=self.module_selector.get_selected_module_names(),
@@ -894,10 +1655,43 @@ class WebUIController:
             # 记录报告生成信息
             if report_path and report_path.exists():
                 self.log(f'测试报告已生成: {report_path}')
+            
+            # 保存测试结果到趋势分析器
+            try:
+                from core.test_result_analyzer import TestResultAnalyzer
+                from core.db_client import DBClient
+                
+                try:
+                    db_client = DBClient()
+                    db_client.connect()
+                    analyzer = TestResultAnalyzer(db_client)
+                except:
+                    analyzer = TestResultAnalyzer()
+                
+                analyzer.save_result(
+                    modules=self.module_selector.get_selected_module_names(),
+                    total=test_stats['total'],
+                    passed=test_stats['passed'],
+                    failed=test_stats['failed'],
+                    skipped=test_stats['skipped'],
+                    duration=test_stats['duration'],
+                    report_path=str(report_path) if report_path else None
+                )
+                self.log('测试结果已保存到趋势分析器')
+            except Exception as e:
+                self.log(f'保存测试结果到趋势分析器失败: {e}')
         except Exception as e:
-            self.log(f'发送通知失败: {e}')
+            error_msg = f'发送通知失败: {e}'
+            self.log(error_msg)
             import traceback
-            self.log(traceback.format_exc())
+            tb_str = traceback.format_exc()
+            self.log(tb_str)
+            # 确保异常信息也被添加到log_content中
+            if error_msg not in self.log_content:
+                self.log_content.append(error_msg)
+            for line in tb_str.split('\n'):
+                if line.strip() and line.strip() not in self.log_content:
+                    self.log_content.append(line.strip())
     
     def show_tutorial_video(self):
         """显示教程视频对话框"""
@@ -1075,26 +1869,57 @@ class WebUIController:
     
     def show_code_converter(self):
         """显示代码转换对话框"""
+        # 动态获取模块列表
+        from utils.module_helper import ModuleHelper
+        import yaml
+        from pathlib import Path
+        
+        # 加载模块配置
+        config_path = Path("config/module_config.yaml")
+        module_options = {}
+        default_module = None
+        
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                modules = config.get('modules', {})
+                for module_key, module_info in modules.items():
+                    if isinstance(module_info, dict) and module_info.get('enabled', True):
+                        module_name = module_info.get('name', module_key)
+                        module_options[module_key] = module_name
+                        if default_module is None:
+                            default_module = module_key
+        
+        # 如果没有找到模块，使用默认值
+        if not module_options:
+            module_options = {'teaching': '授课教学', 'exercise': '攻防演练', 'exam': '考试测评'}
+            default_module = 'teaching'
+        elif default_module is None:
+            default_module = list(module_options.keys())[0]
+        
         with ui.dialog() as dialog, ui.card().style('width: 1000px; max-width: 95vw; max-height: 90vh; background: rgba(20, 30, 50, 0.95); border: 2px solid rgba(0, 150, 255, 0.5);'):
             with ui.column().classes('w-full').style('padding: 24px; display: flex; flex-direction: column; max-height: 90vh;'):
                 ui.label('🔄 代码自动转换工具').classes('text-lg font-bold').style('color: #e0e6ed; margin-bottom: 16px;')
                 
-                ui.markdown("""
+                # 更新使用说明，移除固定的模块名称
+                module_names_str = '/'.join(module_options.values())
+                ui.markdown(f"""
                 <div style="color: #d0e4f0; font-size: 13px; margin-bottom: 16px; padding: 12px; background: rgba(0, 150, 255, 0.1); border-radius: 8px;">
                 <strong style="color: #ffffff;">使用说明：</strong><br>
-                1. 选择模块（授课教学/攻防演练/考试测评）<br>
+                1. 选择模块（{module_names_str}）<br>
                 2. 输入测试用例名称（例如：navigation）<br>
                 3. 粘贴你录制的代码<br>
-                4. 点击"转换并保存"，完成！✅
+                4. 点击"转换"查看转换结果<br>
+                5. 确认无误后点击"保存"，完成！✅
                 </div>
                 """).style('margin-bottom: 16px;')
                 
-                # 模块选择（增强颜色和可见性）
+                # 模块选择（动态获取）
                 with ui.row().classes('w-full gap-4').style('margin-bottom: 16px;'):
                     module_select = ui.select(
-                        {'teaching': '授课教学', 'exercise': '攻防演练', 'exam': '考试测评'},
+                        module_options,
                         label='选择模块',
-                        value='teaching'
+                        value=default_module
                     ).style('flex: 1; color: #ffffff !important;')
                     
                     # 添加CSS样式增强下拉框可见性
@@ -1123,34 +1948,58 @@ class WebUIController:
                     ''')
                     
                     test_name_input = ui.input(
-                        '测试用例名称',
-                        placeholder='例如：navigation、course_management',
-                        value='test_case'
+                        '测试用例名称 *',
+                        placeholder='例如：navigation、course_management（必填）',
+                        value=''
                     ).style('flex: 1; color: #ffffff !important;')
                 
-                # 代码输入区域
+                # 代码输入区域（自动调整大小）
                 ui.label('粘贴录制的代码：').style('color: #e0e6ed; margin-bottom: 8px; font-size: 14px; font-weight: 500;')
                 code_textarea = ui.textarea(
                     label='',
                     placeholder='在这里粘贴Playwright录制的代码...\n\n提示：直接粘贴完整代码即可，工具会自动处理',
-                ).style('width: 100%; min-height: 300px; font-family: monospace; font-size: 12px;')
-                
-                # 转换结果区域（初始隐藏）
-                result_label = ui.label('转换后的代码：').style('color: #e0e6ed; margin-top: 16px; margin-bottom: 8px; font-size: 14px;')
-                result_label.set_visibility(False)
-                
-                result_textarea = ui.textarea(
-                    label='',
-                    placeholder='转换后的代码将显示在这里...'
                 ).style('width: 100%; min-height: 200px; font-family: monospace; font-size: 12px;')
-                result_textarea.set_visibility(False)
+                
+                # 添加自动调整大小的JavaScript
+                ui.add_head_html(f'''
+                <script>
+                    (function() {{
+                        // 等待DOM加载完成
+                        setTimeout(function() {{
+                            const textarea = document.querySelector('textarea[placeholder*="粘贴Playwright录制的代码"]');
+                            if (textarea) {{
+                                // 自动调整高度函数
+                                function autoResize() {{
+                                    textarea.style.height = 'auto';
+                                    const scrollHeight = textarea.scrollHeight;
+                                    // 设置最小高度200px，最大高度600px
+                                    const minHeight = 200;
+                                    const maxHeight = 600;
+                                    const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+                                    textarea.style.height = newHeight + 'px';
+                                    textarea.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
+                                }}
+                                
+                                // 监听输入事件
+                                textarea.addEventListener('input', autoResize);
+                                textarea.addEventListener('paste', function() {{
+                                    setTimeout(autoResize, 10);
+                                }});
+                                
+                                // 初始调整
+                                autoResize();
+                            }}
+                        }}, 100);
+                    }})();
+                </script>
+                ''')
                 
                 # 按钮区域
                 with ui.row().classes('w-full justify-between').style('margin-top: 16px;'):
                     ui.button('关闭', on_click=dialog.close, icon='close').style('min-height: 36px; padding: 6px 20px;')
                     
-                    def convert_and_save():
-                        """转换代码并保存"""
+                    def convert_code():
+                        """转换代码并打开结果弹窗"""
                         try:
                             original_code = code_textarea.value.strip()
                             if not original_code:
@@ -1158,7 +2007,12 @@ class WebUIController:
                                 return
                             
                             module = module_select.value
-                            test_name = test_name_input.value.strip() or 'test_case'
+                            test_name = test_name_input.value.strip()
+                            # 检查测试用例名称是否为空
+                            if not test_name:
+                                ui.notify('请输入测试用例名称！', type='warning')
+                                test_name_input.focus()
+                                return
                             # 移除可能的test_前缀
                             test_name = test_name.replace('test_', '')
                             
@@ -1255,13 +2109,80 @@ class WebUIController:
                             
                             indented_code = '\n'.join(indented_lines)
                             
-                            # 生成测试文件（去掉"实习生"文案）
+                            # 生成测试文件
                             test_file_content = generate_test_file(module, test_name, indented_code, "auto")
                             
-                            # 显示转换结果
-                            result_textarea.value = test_file_content
-                            result_label.set_visibility(True)
-                            result_textarea.set_visibility(True)
+                            # 直接打开转换结果弹窗（包含保存功能）
+                            self._show_conversion_result(test_file_content, module, test_name, dialog)
+                            
+                        except Exception as e:
+                            ui.notify(f'❌ 转换失败: {e}', type='negative')
+                            self.log(f'代码转换失败: {e}')
+                    
+                    ui.button(
+                        '转换',
+                        on_click=convert_code,
+                        icon='autorenew',
+                        color='primary'
+                    ).style('min-height: 36px; padding: 6px 20px;')
+        
+        dialog.open()
+    
+    def _show_conversion_result(self, converted_code: str, module: str, test_name: str, parent_dialog=None):
+        """显示转换结果弹窗（包含保存功能）"""
+        # 获取模块中文名称
+        from utils.module_helper import ModuleHelper
+        module_cn_name = ModuleHelper.get_module_cn_name(module) or module
+        
+        # 计算文件路径（使用正斜杠，跨平台兼容）
+        filepath_str = f"test_cases/{module}/test_{module}_{test_name}.py"
+        filepath = Path(filepath_str)
+        
+        # 使用唯一ID来标识这个textarea
+        import time
+        textarea_id = f'conversion-result-textarea-{int(time.time() * 1000)}'
+        
+        # 缩小弹窗：1600px * 0.8 = 1280px
+        with ui.dialog() as result_dialog, ui.card().style('width: 1280px; max-width: 98vw; height: 95vh; max-height: 95vh; background: rgba(20, 30, 50, 0.95); border: 2px solid rgba(0, 150, 255, 0.5); display: flex; flex-direction: column; box-sizing: border-box;'):
+            with ui.column().classes('w-full').style('padding: 20px; display: flex; flex-direction: column; height: 100%; max-height: 100%; box-sizing: border-box; overflow: hidden;'):
+                # 标题和文件信息（固定高度，不收缩）
+                with ui.column().style('flex-shrink: 0; margin-bottom: 16px;'):
+                    ui.label('📋 转换后的代码').classes('text-lg font-bold').style('color: #e0e6ed; margin-bottom: 8px;')
+                    # 显示测试用例名称和保存文件名
+                    display_test_name = test_name.replace('test_', '') if test_name.startswith('test_') else test_name
+                    filename = f"test_{module}_{test_name}.py"
+                    ui.label(f'模块: {module_cn_name} | 测试用例: {display_test_name} | 保存文件名: {filename}').style('color: #b0c4de; font-size: 13px; margin-bottom: 4px;')
+                    # 显示保存路径（使用正斜杠）
+                    ui.label(f'保存路径: {filepath_str}').style('color: #80a4de; font-size: 12px; font-family: monospace;')
+                
+                # 代码编辑区域
+                code_textarea = ui.textarea(
+                    value=converted_code,
+                    label=''
+                ).classes('w-full').style(
+                    'font-family: "Consolas", "Monaco", "Courier New", monospace; '
+                    'font-size: 13px; '
+                    'background: rgba(10, 20, 35, 0.8); '
+                    'color: #e0e6ed; '
+                    'border: 1px solid rgba(0, 150, 255, 0.3); '
+                    'border-radius: 4px; '
+                    'padding: 12px;'
+                )
+                
+                with ui.row().classes('w-full justify-end gap-3').style('flex-shrink: 0; margin-top: 16px;'):
+                    def save_file():
+                        """保存转换后的代码为文件"""
+                        try:
+                            # 直接获取textarea的值（简单直接，无需同步）
+                            edited_code = code_textarea.value
+                            
+                            # 确保是字符串类型
+                            if not isinstance(edited_code, str):
+                                edited_code = str(edited_code) if edited_code else converted_code
+                            
+                            # 如果为空，使用原始代码
+                            if not edited_code:
+                                edited_code = converted_code
                             
                             # 保存文件
                             test_dir = Path(f"test_cases/{module}")
@@ -1270,23 +2191,25 @@ class WebUIController:
                             filename = f"test_{module}_{test_name}.py"
                             filepath = test_dir / filename
                             
-                            filepath.write_text(test_file_content, encoding='utf-8')
+                            filepath.write_text(edited_code, encoding='utf-8')
                             
-                            ui.notify(f'✅ 转换完成！文件已保存到: {filepath}', type='positive', timeout=5000)
+                            ui.notify(f'✅ 文件已保存到: {filepath}', type='positive', timeout=5000)
                             self.log(f'代码转换成功: {filepath}')
                             
+                            # 保存后关闭弹窗
+                            result_dialog.close()
+                            # 如果提供了父对话框，也关闭它
+                            if parent_dialog:
+                                parent_dialog.close()
+                            
                         except Exception as e:
-                            ui.notify(f'❌ 转换失败: {e}', type='negative')
-                            self.log(f'代码转换失败: {e}')
+                            ui.notify(f'❌ 保存失败: {e}', type='negative')
+                            self.log(f'代码保存失败: {e}')
                     
-                    ui.button(
-                        '转换并保存',
-                        on_click=convert_and_save,
-                        icon='save',
-                        color='primary'
-                    ).style('min-height: 36px; padding: 6px 20px;')
+                    ui.button('关闭', on_click=result_dialog.close, icon='close', color='negative').style('min-height: 36px; padding: 6px 20px;')
+                    ui.button('保存', on_click=save_file, icon='save', color='positive').style('min-height: 36px; padding: 6px 20px;')
         
-        dialog.open()
+        result_dialog.open()
     
     def start_recording(self):
         """启动录制工具（自动登录版本）"""
@@ -1329,6 +2252,11 @@ class WebUIController:
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_message = f"[{timestamp}] {message}"
         self.log_area.push(log_message)
+        # 确保日志也被添加到log_content中，以便导出
+        if log_message not in self.log_content:
+            self.log_content.append(log_message)
+        if len(self.log_content) > self.max_log_lines:
+            self.log_content.pop(0)
     
     def clear_log(self):
         """清空日志"""
@@ -1348,21 +2276,99 @@ class WebUIController:
             f.write('\n'.join(self.log_content))
         
         ui.notify(f'日志已导出到: {log_file}', type='positive')
-    
+
     def show_test_reports(self):
         """显示测试报告列表弹窗"""
         reports_dir = Path("reports")
         reports_dir.mkdir(exist_ok=True)
         
         # 获取所有HTML报告文件，按时间倒序排列
+        # 支持两种报告类型：WebUI自动化测试报告_*.html 和 pytest自动化测试报告_*.html
         html_reports = sorted(
-            reports_dir.glob("report_*.html"),
+            list(reports_dir.glob("WebUI自动化测试报告_*.html")) + list(reports_dir.glob("pytest自动化测试报告_*.html")),
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )
         
-        with ui.dialog() as dialog, ui.card().style('width: 1000px; max-width: 95vw; background: rgba(20, 30, 50, 0.95); border: 2px solid rgba(0, 150, 255, 0.5);'):
-            with ui.column().classes('w-full').style('padding: 24px;'):
+        # 添加滚动条样式
+        ui.add_head_html('''
+        <style>
+            .report-list-container {
+                max-height: 500px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding-right: 8px;
+            }
+            .report-list-container::-webkit-scrollbar {
+                width: 8px;
+            }
+            .report-list-container::-webkit-scrollbar-track {
+                background: rgba(10, 22, 40, 0.3);
+                border-radius: 4px;
+            }
+            .report-list-container::-webkit-scrollbar-thumb {
+                background: rgba(0, 150, 255, 0.5);
+                border-radius: 4px;
+            }
+            .report-list-container::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 150, 255, 0.7);
+            }
+        </style>
+        ''')
+        
+        # 存储报告列表容器，用于动态更新
+        report_list_container = None
+        
+        def refresh_report_list():
+            """刷新报告列表"""
+            nonlocal html_reports
+            # 重新获取报告列表
+            html_reports = sorted(
+                list(reports_dir.glob("WebUI自动化测试报告_*.html")) + list(reports_dir.glob("pytest自动化测试报告_*.html")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True
+            )
+            
+            # 清空并重新填充列表
+            if report_list_container:
+                report_list_container.clear()
+                with report_list_container:
+                    if not html_reports:
+                        with ui.column().classes('w-full items-center').style('padding: 40px;'):
+                            ui.icon('description', size=64).style('color: #90caf9; opacity: 0.5; margin-bottom: 16px;')
+                            ui.label('暂无测试报告').style('color: #90caf9; font-size: 16px; margin-bottom: 8px;')
+                            ui.label('执行测试后会自动生成报告').style('color: #b0c4de; font-size: 12px;')
+                    else:
+                        for report_file in html_reports:
+                            # 获取文件信息
+                            file_stat = report_file.stat()
+                            file_size = file_stat.st_size / 1024  # KB
+                            file_time = datetime.fromtimestamp(file_stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            # 判断报告类型
+                            if "WebUI自动化测试报告" in report_file.name:
+                                report_type = "📊 WebUI报告"
+                            elif "pytest自动化测试报告" in report_file.name or "pytest_report" in report_file.name:
+                                report_type = "🔧 pytest报告"
+                            else:
+                                report_type = "📄 其他报告"
+                            
+                            with ui.card().classes('w-full').style('background: rgba(10, 22, 40, 0.6); border: 1px solid rgba(0, 150, 255, 0.3); padding: 16px; transition: all 0.3s;'):
+                                with ui.row().classes('w-full items-center justify-between'):
+                                    with ui.column().classes('flex-1').style('min-width: 0;'):
+                                        with ui.row().classes('gap-2 items-center').style('margin-bottom: 4px;'):
+                                            ui.label(report_type).style('color: #4fc3f7; font-size: 11px; padding: 2px 8px; background: rgba(0, 150, 255, 0.2); border-radius: 4px;')
+                                            ui.label(report_file.name).style('color: #e0e6ed; font-size: 14px; font-weight: 500;')
+                                        with ui.row().classes('gap-4').style('font-size: 12px;'):
+                                            ui.label(f'📅 {file_time}').style('color: #90caf9;')
+                                            ui.label(f'📦 {file_size:.1f} KB').style('color: #90caf9;')
+                                    
+                                    with ui.row().classes('gap-2'):
+                                        ui.button('打开', icon='open_in_new', on_click=lambda rf=report_file: self._open_report(rf)).style('min-height: 32px; padding: 4px 12px; font-size: 12px;')
+                                        ui.button('删除', icon='delete', color='red', on_click=lambda rf=report_file: self._delete_report(rf, refresh_report_list)).style('min-height: 32px; padding: 4px 12px; font-size: 12px;')
+        
+        with ui.dialog() as dialog, ui.card().style('width: 1000px; max-width: 95vw; max-height: 90vh; background: rgba(20, 30, 50, 0.95); border: 2px solid rgba(0, 150, 255, 0.5);'):
+            with ui.column().classes('w-full').style('padding: 24px; display: flex; flex-direction: column; max-height: 90vh;'):
                 ui.label('📊 测试报告列表').classes('text-lg font-bold').style('color: #e0e6ed; margin-bottom: 20px;')
                 
                 if not html_reports:
@@ -1376,29 +2382,40 @@ class WebUIController:
                     ui.label(f'共找到 {len(html_reports)} 个测试报告（按时间倒序）').style('color: #90caf9; font-size: 12px; margin-bottom: 16px;')
                     
                     # 报告列表容器（可滚动）
-                    with ui.column().classes('w-full').style('max-height: 500px; overflow-y: auto; gap: 12px;'):
+                    with ui.column().classes('w-full report-list-container').style('flex: 1; min-height: 0; gap: 12px;') as container:
+                        report_list_container = container
                         for report_file in html_reports:
                             # 获取文件信息
                             file_stat = report_file.stat()
                             file_size = file_stat.st_size / 1024  # KB
                             file_time = datetime.fromtimestamp(file_stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                             
+                            # 判断报告类型
+                            if "WebUI自动化测试报告" in report_file.name:
+                                report_type = "📊 WebUI报告"
+                            elif "pytest自动化测试报告" in report_file.name or "pytest_report" in report_file.name:
+                                report_type = "🔧 pytest报告"
+                            else:
+                                report_type = "📄 其他报告"
+                            
                             with ui.card().classes('w-full').style('background: rgba(10, 22, 40, 0.6); border: 1px solid rgba(0, 150, 255, 0.3); padding: 16px; transition: all 0.3s;'):
                                 with ui.row().classes('w-full items-center justify-between'):
                                     with ui.column().classes('flex-1').style('min-width: 0;'):
-                                        ui.label(report_file.name).style('color: #e0e6ed; font-size: 14px; font-weight: 500; margin-bottom: 4px;')
+                                        with ui.row().classes('gap-2 items-center').style('margin-bottom: 4px;'):
+                                            ui.label(report_type).style('color: #4fc3f7; font-size: 11px; padding: 2px 8px; background: rgba(0, 150, 255, 0.2); border-radius: 4px;')
+                                            ui.label(report_file.name).style('color: #e0e6ed; font-size: 14px; font-weight: 500;')
                                         with ui.row().classes('gap-4').style('font-size: 12px;'):
                                             ui.label(f'📅 {file_time}').style('color: #90caf9;')
                                             ui.label(f'📦 {file_size:.1f} KB').style('color: #90caf9;')
                                     
                                     with ui.row().classes('gap-2'):
                                         ui.button('打开', icon='open_in_new', on_click=lambda rf=report_file: self._open_report(rf)).style('min-height: 32px; padding: 4px 12px; font-size: 12px;')
-                                        ui.button('删除', icon='delete', color='red', on_click=lambda rf=report_file: self._delete_report(rf, dialog)).style('min-height: 32px; padding: 4px 12px; font-size: 12px;')
-                    
-                    # 底部操作按钮
-                    with ui.row().classes('w-full justify-between').style('margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(0, 150, 255, 0.2);'):
-                        ui.button('打开报告目录', icon='folder_open', on_click=lambda: self._open_reports_folder()).style('min-height: 36px; padding: 6px 16px; font-size: 12px;')
-                        ui.button('关闭', on_click=dialog.close, icon='close').style('min-height: 36px; padding: 6px 20px; font-size: 12px;')
+                                        ui.button('删除', icon='delete', color='red', on_click=lambda rf=report_file: self._delete_report(rf, refresh_report_list)).style('min-height: 32px; padding: 4px 12px; font-size: 12px;')
+                
+                # 底部操作按钮
+                with ui.row().classes('w-full justify-between').style('margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(0, 150, 255, 0.2); flex-shrink: 0;'):
+                    ui.button('打开报告目录', icon='folder_open', on_click=lambda: self._open_reports_folder()).style('min-height: 36px; padding: 6px 16px; font-size: 12px;')
+                    ui.button('关闭', on_click=dialog.close, icon='close').style('min-height: 36px; padding: 6px 20px; font-size: 12px;')
         
         dialog.open()
     
@@ -1426,19 +2443,19 @@ class WebUIController:
         except Exception as e:
             ui.notify(f'打开报告失败: {e}', type='negative')
     
-    def _delete_report(self, report_file: Path, dialog):
+    def _delete_report(self, report_file: Path, refresh_callback):
         """删除测试报告
         
         Args:
             report_file: 报告文件路径
-            dialog: 对话框对象（用于刷新列表）
+            refresh_callback: 刷新列表的回调函数
         """
         try:
             report_file.unlink()
             ui.notify(f'已删除报告: {report_file.name}', type='positive')
-            # 关闭并重新打开对话框以刷新列表
-            dialog.close()
-            ui.timer(0.3, lambda: self.show_test_reports(), once=True)
+            # 调用刷新回调，不关闭弹窗
+            if refresh_callback:
+                refresh_callback()
         except Exception as e:
             ui.notify(f'删除报告失败: {e}', type='negative')
     
