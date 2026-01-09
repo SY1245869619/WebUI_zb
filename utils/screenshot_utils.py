@@ -6,10 +6,16 @@
 @Author: shenyuan
 """
 import asyncio
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from playwright.async_api import Page
+
+# 创建logger用于记录截图日志
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.propagate = True
 
 
 class ScreenshotHelper:
@@ -37,22 +43,41 @@ class ScreenshotHelper:
         """
         try:
             # 生成文件名：error_YYYYMMDD_HHMMSS_错误信息前10个字符.png
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 添加毫秒级时间戳，防止文件名重复
+            from datetime import datetime
+            now = datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            milliseconds = now.microsecond // 1000  # 毫秒
+            timestamp_with_ms = f"{timestamp}_{milliseconds:03d}"
+            
             # 清理错误信息，只保留安全字符
             safe_error = "".join(c for c in error_message[:20] if c.isalnum() or c in ('_', '-')).strip()
             if safe_error:
-                filename = f"{prefix}_{timestamp}_{safe_error}.png"
+                filename = f"{prefix}_{timestamp_with_ms}_{safe_error}.png"
             else:
-                filename = f"{prefix}_{timestamp}.png"
+                filename = f"{prefix}_{timestamp_with_ms}.png"
             
             filepath = self.screenshot_dir / filename
             
-            # 截图
-            await page.screenshot(path=str(filepath), full_page=True)
-            print(f"[ScreenshotHelper] 错误截图已保存: {filepath}")
-            return str(filepath)
+            # 检查页面是否已关闭
+            if page.is_closed():
+                logger.warning(f"[ScreenshotHelper] 页面已关闭，无法截图")
+                return ""
+            
+            # 截图 - 确保在正确的事件循环中执行
+            try:
+                await page.screenshot(path=str(filepath), full_page=True)
+                logger.info(f"[ScreenshotHelper] 错误截图已保存: {filepath}")
+                return str(filepath)
+            except RuntimeError as e:
+                if "different loop" in str(e):
+                    logger.warning(f"[ScreenshotHelper] 事件循环不匹配，无法截图: {e}")
+                    return ""
+                raise
         except Exception as e:
-            print(f"[ScreenshotHelper] 保存错误截图失败: {e}")
+            logger.error(f"[ScreenshotHelper] 保存错误截图失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ""
     
     async def take_success_screenshot(self, page: Page, step_name: str = "", prefix: str = "success") -> str:
@@ -67,23 +92,42 @@ class ScreenshotHelper:
             截图文件路径
         """
         try:
+            # 检查页面是否已关闭
+            if page.is_closed():
+                print(f"[ScreenshotHelper] 页面已关闭，无法截图")
+                return ""
+            
             # 生成文件名：success_YYYYMMDD_HHMMSS_步骤名称.png
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 添加毫秒级时间戳，防止文件名重复
+            from datetime import datetime
+            now = datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            milliseconds = now.microsecond // 1000  # 毫秒
+            timestamp_with_ms = f"{timestamp}_{milliseconds:03d}"
+            
             # 清理步骤名称，只保留安全字符
             safe_name = "".join(c for c in step_name[:30] if c.isalnum() or c in ('_', '-')).strip()
             if safe_name:
-                filename = f"{prefix}_{timestamp}_{safe_name}.png"
+                filename = f"{prefix}_{timestamp_with_ms}_{safe_name}.png"
             else:
-                filename = f"{prefix}_{timestamp}.png"
+                filename = f"{prefix}_{timestamp_with_ms}.png"
             
             filepath = self.screenshot_dir / filename
             
-            # 截图
-            await page.screenshot(path=str(filepath), full_page=True)
-            print(f"[ScreenshotHelper] 成功截图已保存: {filepath}")
-            return str(filepath)
+            # 截图 - 确保在正确的事件循环中执行
+            try:
+                await page.screenshot(path=str(filepath), full_page=True)
+                logger.info(f"[ScreenshotHelper] 成功截图已保存: {filepath}")
+                return str(filepath)
+            except RuntimeError as e:
+                if "different loop" in str(e):
+                    logger.warning(f"[ScreenshotHelper] 事件循环不匹配，无法截图: {e}")
+                    return ""
+                raise
         except Exception as e:
-            print(f"[ScreenshotHelper] 保存成功截图失败: {e}")
+            logger.error(f"[ScreenshotHelper] 保存成功截图失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ""
     
     async def take_screenshot(self, page: Page, filename: str = None) -> str:
@@ -91,15 +135,33 @@ class ScreenshotHelper:
         
         Args:
             page: Playwright Page 对象
-            filename: 文件名（可选，如果不提供则自动生成）
+            filename: 文件名（可选，如果不提供则自动生成，如果提供则会在文件名中添加时间戳）
             
         Returns:
             截图文件路径
         """
         try:
+            # 添加毫秒级时间戳，防止文件名重复
+            from datetime import datetime
+            now = datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            milliseconds = now.microsecond // 1000  # 毫秒
+            timestamp_with_ms = f"{timestamp}_{milliseconds:03d}"
+            
             if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"screenshot_{timestamp}.png"
+                filename = f"screenshot_{timestamp_with_ms}.png"
+            else:
+                # 即使提供了自定义文件名，也要添加时间戳
+                # 清理文件名，移除扩展名（如果有）
+                base_name = filename
+                if base_name.endswith('.png'):
+                    base_name = base_name[:-4]
+                # 清理文件名，只保留安全字符
+                safe_name = "".join(c for c in base_name[:50] if c.isalnum() or c in ('_', '-', '，', '。')).strip()
+                if safe_name:
+                    filename = f"{safe_name}_{timestamp_with_ms}.png"
+                else:
+                    filename = f"screenshot_{timestamp_with_ms}.png"
             
             # 确保文件名以 .png 结尾
             if not filename.endswith('.png'):
@@ -107,12 +169,25 @@ class ScreenshotHelper:
             
             filepath = self.screenshot_dir / filename
             
-            # 截图
-            await page.screenshot(path=str(filepath), full_page=True)
-            print(f"[ScreenshotHelper] 截图已保存: {filepath}")
-            return str(filepath)
+            # 检查页面是否已关闭
+            if page.is_closed():
+                logger.warning(f"[ScreenshotHelper] 页面已关闭，无法截图")
+                return ""
+            
+            # 截图 - 确保在正确的事件循环中执行
+            try:
+                await page.screenshot(path=str(filepath), full_page=True)
+                logger.info(f"[ScreenshotHelper] 截图已保存: {filepath}")
+                return str(filepath)
+            except RuntimeError as e:
+                if "different loop" in str(e):
+                    logger.warning(f"[ScreenshotHelper] 事件循环不匹配，无法截图: {e}")
+                    return ""
+                raise
         except Exception as e:
-            print(f"[ScreenshotHelper] 保存截图失败: {e}")
+            logger.error(f"[ScreenshotHelper] 保存截图失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ""
 
 
