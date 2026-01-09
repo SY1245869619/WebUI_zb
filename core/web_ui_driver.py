@@ -6,11 +6,22 @@ Playwright浏览器驱动封装
 @Author: shenyuan
 """
 import asyncio
+import logging
+import sys
+import io
 from typing import Optional, Callable, Any
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 import yaml
 import os
 from pathlib import Path
+
+# 创建logger用于记录驱动日志
+logger = logging.getLogger(__name__)
+# 确保logger使用UTF-8编码
+logger.setLevel(logging.INFO)
+# 不添加自己的handler，只使用根logger的handler，避免重复输出
+# 设置propagate=True让日志传播到根logger，由根logger统一处理
+logger.propagate = True
 
 
 class WebUIDriver:
@@ -37,17 +48,24 @@ class WebUIDriver:
         with open(config_file, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     
-    async def start(self):
-        """启动浏览器"""
+    async def start(self, video_options: Optional[dict] = None):
+        """启动浏览器
+        
+        Args:
+            video_options: 可选的视频录制配置（dict，包含record_video_dir等）
+        """
         # 确保在正确的事件循环中启动Playwright
         # 获取当前运行的事件循环（必须在 async 函数中调用）
         try:
             current_loop = asyncio.get_running_loop()
-            print(f"[DRIVER] 启动 Playwright，当前事件循环: {current_loop}")
+            logger.info(f"[DRIVER] 启动 Playwright，当前事件循环: {current_loop}")
         except RuntimeError:
             # 如果没有运行的事件循环，获取默认的事件循环
             current_loop = asyncio.get_event_loop()
-            print(f"[DRIVER] 启动 Playwright，使用默认事件循环: {current_loop}")
+            logger.info(f"[DRIVER] 启动 Playwright，使用默认事件循环: {current_loop}")
+        
+        # 保存事件循环引用，以便在测试失败时使用
+        self._loop = current_loop
         
         # 确保事件循环是活动的
         if current_loop.is_closed():
@@ -55,7 +73,7 @@ class WebUIDriver:
         
         # 启动 Playwright（必须在当前事件循环中调用）
         self.playwright = await async_playwright().start()
-        print(f"[DRIVER] Playwright 已启动")
+        logger.info("[DRIVER] Playwright 已启动")
         
         browser_type = getattr(self.playwright, self.config['playwright']['browser'])
         
@@ -63,19 +81,170 @@ class WebUIDriver:
             headless=self.config['playwright']['headless'],
             slow_mo=self.config['playwright']['slow_mo']
         )
-        print(f"[DRIVER] 浏览器已启动")
+        logger.info("[DRIVER] 浏览器已启动")
         
-        self.context = await self.browser.new_context(
-            viewport={
-                'width': self.config['playwright']['viewport']['width'],
-                'height': self.config['playwright']['viewport']['height']
-            }
-        )
-        print(f"[DRIVER] 浏览器上下文已创建")
+        # 准备context配置
+        context_options = {}
+        
+        # 添加视频录制选项（如果提供）
+        if video_options:
+            context_options.update(video_options)
+        
+        # 检查是否启用移动端模式
+        device_config = self.config.get('playwright', {}).get('device', {})
+        if device_config.get('enabled', False):
+            # 使用移动设备模拟
+            device_name = device_config.get('name', 'iPhone 12')
+            from playwright.async_api import devices
+            device = devices.get(device_name)
+            if device:
+                # 合并设备配置和视频选项
+                context_options.update(device)
+                self.context = await self.browser.new_context(**context_options)
+            else:
+                # 如果设备不存在，使用自定义移动端配置
+                context_options.update({
+                    'viewport': {
+                        'width': device_config.get('width', 375),
+                        'height': device_config.get('height', 667)
+                    },
+                    'user_agent': device_config.get('user_agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)')
+                })
+                self.context = await self.browser.new_context(**context_options)
+        else:
+            # 桌面端模式
+            context_options.update({
+                'viewport': {
+                    'width': self.config['playwright']['viewport']['width'],
+                    'height': self.config['playwright']['viewport']['height']
+                }
+            })
+            self.context = await self.browser.new_context(**context_options)
+        logger.info("[DRIVER] 浏览器上下文已创建")
+        
+        # 启用Playwright日志记录（自动记录所有操作和断言）
+        # 这会自动记录所有页面操作、网络请求、断言等
+        playwright_logger = logging.getLogger("playwright")
+        playwright_logger.setLevel(logging.INFO)
         
         self.page = await self.context.new_page()
         self.page.set_default_timeout(self.config['playwright']['timeout'])
-        print(f"[DRIVER] 页面已创建，事件循环: {asyncio.get_running_loop()}")
+        
+        # 监听页面事件，只记录重要的日志（过滤掉页面JavaScript错误和警告）
+        def handle_console(msg):
+            # 只记录log类型，过滤掉error和warning（这些是页面JavaScript错误，不是测试错误）
+            if msg.type == 'log':
+                # 过滤掉无意义的日志（如"Gt", "false"等）
+                text = msg.text.strip()
+                if text and len(text) > 2 and not text.lower() in ['gt', 'false', 'true']:
+                    logger.info(f"[PAGE] {msg.type}: {msg.text}")
+        
+        def handle_pageerror(error):
+            # 只记录真正的页面错误，过滤掉SVG路径错误等无关错误
+            error_str = str(error)
+            if 'path' not in error_str.lower() and 'attribute d' not in error_str.lower():
+                logger.error(f"[PAGE ERROR] {error}")
+        
+        self.page.on("console", handle_console)
+        self.page.on("pageerror", handle_pageerror)
+        
+        logger.info(f"[DRIVER] 页面已创建，事件循环: {asyncio.get_running_loop()}")
+    
+    def _wrap_page_methods(self):
+        """包装Playwright页面方法以自动记录操作日志"""
+        # 保存原始方法
+        original_click = self.page.click
+        original_dblclick = self.page.dblclick
+        original_fill = self.page.fill
+        original_get_by_text = self.page.get_by_text
+        original_get_by_role = self.page.get_by_role
+        original_locator = self.page.locator
+        
+        async def logged_click(selector, **kwargs):
+            # 尝试获取元素的描述性信息
+            try:
+                if hasattr(selector, 'get_text'):
+                    text = await selector.get_text()
+                    print(f"[ACTION] 点击元素: {text}")
+                else:
+                    print(f"[ACTION] 点击元素: {selector}")
+            except:
+                print(f"[ACTION] 点击元素: {selector}")
+            try:
+                result = await original_click(selector, **kwargs)
+                return result
+            except Exception as e:
+                print(f"[ACTION ERROR] 点击失败: {selector}, 错误: {e}")
+                raise
+        
+        async def logged_dblclick(selector, **kwargs):
+            try:
+                if hasattr(selector, 'get_text'):
+                    text = await selector.get_text()
+                    print(f"[ACTION] 双击元素: {text}")
+                else:
+                    print(f"[ACTION] 双击元素: {selector}")
+            except:
+                print(f"[ACTION] 双击元素: {selector}")
+            try:
+                result = await original_dblclick(selector, **kwargs)
+                return result
+            except Exception as e:
+                print(f"[ACTION ERROR] 双击失败: {selector}, 错误: {e}")
+                raise
+        
+        async def logged_fill(selector, value, **kwargs):
+            print(f"[ACTION] 填写输入框: {selector} = {value}")
+            try:
+                result = await original_fill(selector, value, **kwargs)
+                return result
+            except Exception as e:
+                print(f"[ACTION ERROR] 填写失败: {selector}, 错误: {e}")
+                raise
+        
+        # 包装get_by_text和get_by_role（这些返回locator，需要特殊处理）
+        def logged_get_by_text(text, **kwargs):
+            print(f"[ACTION] 查找文本元素: {text}")
+            locator = original_get_by_text(text, **kwargs)
+            # 包装返回的locator的click方法
+            original_locator_click = locator.click
+            async def logged_locator_click(**click_kwargs):
+                print(f"[ACTION] 点击文本元素: {text}")
+                return await original_locator_click(**click_kwargs)
+            locator.click = logged_locator_click
+            return locator
+        
+        def logged_get_by_role(role, **kwargs):
+            name = kwargs.get('name', '')
+            role_desc = f"{role}" + (f" (name={name})" if name else "")
+            print(f"[ACTION] 查找角色元素: {role_desc}")
+            locator = original_get_by_role(role, **kwargs)
+            # 包装返回的locator的click方法
+            original_locator_click = locator.click
+            async def logged_locator_click(**click_kwargs):
+                print(f"[ACTION] 点击角色元素: {role_desc}")
+                return await original_locator_click(**click_kwargs)
+            locator.click = logged_locator_click
+            return locator
+        
+        def logged_locator(selector, **kwargs):
+            print(f"[ACTION] 定位元素: {selector}")
+            locator = original_locator(selector, **kwargs)
+            # 包装返回的locator的click方法
+            original_locator_click = locator.click
+            async def logged_locator_click(**click_kwargs):
+                print(f"[ACTION] 点击定位元素: {selector}")
+                return await original_locator_click(**click_kwargs)
+            locator.click = logged_locator_click
+            return locator
+        
+        # 替换方法
+        self.page.click = logged_click
+        self.page.dblclick = logged_dblclick
+        self.page.fill = logged_fill
+        self.page.get_by_text = logged_get_by_text
+        self.page.get_by_role = logged_get_by_role
+        self.page.locator = logged_locator
         
     async def close(self):
         """关闭浏览器"""
@@ -244,6 +413,33 @@ class WebUIDriver:
         """
         from utils.screenshot_utils import take_success_screenshot
         return await take_success_screenshot(self.page, step_name)
+    
+    async def take_screenshot(self, filename: str = None) -> str:
+        """通用截图方法
+
+        Args:
+            filename: 文件名（可选，如果不提供则自动生成）
+
+        Returns:
+            截图文件路径
+        """
+        from utils.screenshot_utils import take_screenshot
+        screenshot_path = await take_screenshot(self.page, filename)
+        
+        # 将截图路径保存到pytest item中，以便在报告中显示
+        try:
+            # 通过driver的_pytest_request访问item
+            if hasattr(self, '_pytest_request') and self._pytest_request:
+                item = self._pytest_request.node
+                if not hasattr(item, 'manual_screenshots'):
+                    item.manual_screenshots = []
+                if screenshot_path and screenshot_path not in item.manual_screenshots:
+                    item.manual_screenshots.append(screenshot_path)
+        except:
+            # 如果无法访问pytest对象，忽略
+            pass
+        
+        return screenshot_path
     
     async def execute_with_retry(
         self, 
