@@ -179,15 +179,30 @@ class NotificationService:
                 from email import encoders
                 
                 for file_path in attachments:
-                    with open(file_path, 'rb') as f:
-                        mime = MIMEBase('application', 'octet-stream')
-                        mime.set_payload(f.read())
-                        encoders.encode_base64(mime)
-                        mime.add_header(
-                            'Content-Disposition',
-                            f'attachment; filename={Path(file_path).name}'
-                        )
-                        msg.attach(mime)
+                    file_path_obj = Path(file_path)
+                    if not file_path_obj.exists():
+                        print(f"附件文件不存在: {file_path}")
+                        continue
+                    
+                    try:
+                        with open(file_path_obj, 'rb') as f:
+                            mime = MIMEBase('application', 'octet-stream')
+                            mime.set_payload(f.read())
+                            encoders.encode_base64(mime)
+                            # 使用Header确保中文文件名正确编码（使用顶部导入的Header）
+                            filename_header = Header(file_path_obj.name, 'utf-8')
+                            mime.add_header(
+                                'Content-Disposition',
+                                f'attachment; filename="{filename_header.encode()}"'
+                            )
+                            # 添加Content-Type头
+                            mime.add_header('Content-Type', 'text/html; charset=utf-8')
+                            msg.attach(mime)
+                            print(f"附件已添加: {file_path_obj.name}")
+                    except Exception as e:
+                        print(f"添加附件失败 {file_path}: {e}")
+                        import traceback
+                        traceback.print_exc()
             
             # 发送邮件
             smtp = smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port'])
@@ -258,7 +273,20 @@ class NotificationService:
         
         # 如果存在HTML报告，在钉钉消息中添加提示
         if html_report_path and html_report_path.exists():
-            dingtalk_msg += f"\n**详细报告**: 请查看邮件附件或访问: `{html_report_path.absolute()}`"
+            # 钉钉机器人不支持直接附件，但可以提供相对路径和说明
+            report_name = html_report_path.name
+            # 使用相对路径（相对于项目根目录）
+            try:
+                from pathlib import Path
+                project_root = Path.cwd()
+                relative_path = html_report_path.relative_to(project_root)
+                report_path = str(relative_path).replace('\\', '/')  # 统一使用正斜杠
+            except:
+                report_path = f"reports/{report_name}"
+            
+            dingtalk_msg += f"\n---\n"
+            dingtalk_msg += f"**📄 详细报告**: `{report_path}`\n"
+            dingtalk_msg += f"💡 完整HTML报告已通过邮件发送"
         
         # 构建邮件内容（HTML格式）
         email_html_content = f"""
