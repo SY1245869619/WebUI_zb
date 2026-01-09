@@ -11,6 +11,9 @@ database:
     ssh_port: 22
     ssh_user: user
   user: root
+execution:
+  retry_count: 1
+  timeout_seconds: 10
 logging:
   file: logs/automation.log
   format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -27,11 +30,11 @@ login:
     input[placeholder*="账号"]
 notification:
   dingtalk:
-    enabled: true
+    enabled: false
     secret: SEC8148a6bbc8f62282776f1d104222bfe0d13f4a43e0773c302c7118a0419ebe28
     webhook: https://oapi.dingtalk.com/robot/send?access_token=fa5b39685bf56cfa2c84a26ad519093011d0db9cd3ec98f10b54e54a889dafbc
   email:
-    enabled: true
+    enabled: false
     receiver_emails:
     - sy17713146220@dingtalk.com
     sender_email: 1245869619@qq.com
